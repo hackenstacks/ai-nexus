@@ -14,6 +14,19 @@ const defaultApiConfig: ApiConfig = {
     model: ''
 };
 
+const Section: React.FC<{ title: string, children: React.ReactNode }> = ({ title, children }) => {
+    const [isOpen, setIsOpen] = useState(true);
+    return (
+        <div className="rounded-md border border-nexus-gray-700 bg-nexus-gray-800/50">
+            <button type="button" onClick={() => setIsOpen(!isOpen)} className="w-full text-left p-4 flex justify-between items-center">
+                <h3 className="text-lg font-medium text-white">{title}</h3>
+                <svg className={`w-5 h-5 text-nexus-gray-400 transform transition-transform ${isOpen ? 'rotate-180' : ''}`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+            </button>
+            {isOpen && <div className="p-4 border-t border-nexus-gray-700 space-y-4">{children}</div>}
+        </div>
+    );
+}
+
 export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave, onCancel }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -21,6 +34,11 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
   const [avatarUrl, setAvatarUrl] = useState('');
   const [tags, setTags] = useState('');
   const [apiConfig, setApiConfig] = useState<ApiConfig>(defaultApiConfig);
+  const [physicalAppearance, setPhysicalAppearance] = useState('');
+  const [personalityTraits, setPersonalityTraits] = useState('');
+  const [lore, setLore] = useState<string[]>([]);
+  const [memory, setMemory] = useState('');
+
 
   useEffect(() => {
     if (character) {
@@ -30,6 +48,10 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
       setAvatarUrl(character.avatarUrl);
       setTags(character.tags.join(', '));
       setApiConfig(character.apiConfig || defaultApiConfig);
+      setPhysicalAppearance(character.physicalAppearance || '');
+      setPersonalityTraits(character.personalityTraits || '');
+      setLore(character.lore || []);
+      setMemory(character.memory || 'No memories yet.');
     } else {
         setName('');
         setDescription('');
@@ -37,6 +59,10 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
         setAvatarUrl('');
         setTags('');
         setApiConfig(defaultApiConfig);
+        setPhysicalAppearance('');
+        setPersonalityTraits('');
+        setLore([]);
+        setMemory('No memories yet.');
     }
   }, [character]);
 
@@ -56,6 +82,10 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
       avatarUrl,
       tags: tags.split(',').map(tag => tag.trim()).filter(Boolean),
       createdAt: character?.createdAt || new Date().toISOString(),
+      physicalAppearance,
+      personalityTraits,
+      lore,
+      memory: character?.memory || '',
       apiConfig: {
         ...apiConfig,
         apiKey: apiConfig.apiKey?.trim(),
@@ -76,58 +106,123 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
       <h2 className="text-3xl font-bold text-white mb-6">
         {character ? 'Edit Character' : 'Create New Character'}
       </h2>
-      <form onSubmit={handleSubmit} className="space-y-6 max-w-2xl">
-        <div>
-          <label htmlFor="name" className="block text-sm font-medium text-nexus-gray-300">Name</label>
-          <input
-            id="name"
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-          />
-        </div>
-        <div>
-          <label htmlFor="description" className="block text-sm font-medium text-nexus-gray-300">Description</label>
-          <textarea
-            id="description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={3}
-            className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-            placeholder="A brief description of the character."
-          />
-        </div>
-        <div>
-          <label htmlFor="personality" className="block text-sm font-medium text-nexus-gray-300">Personality & System Prompt</label>
-          <textarea
-            id="personality"
-            value={personality}
-            onChange={(e) => setPersonality(e.target.value)}
-            rows={6}
-            className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-            placeholder="Describe the character's personality, quirks, and conversation style. This will be used as a system prompt."
-          />
-        </div>
-        <div>
-          <label htmlFor="avatarUrl" className="block text-sm font-medium text-nexus-gray-300">Avatar URL</label>
-          <div className="mt-1 flex rounded-md shadow-sm">
-            <input
-              id="avatarUrl"
-              type="text"
-              value={avatarUrl}
-              onChange={(e) => setAvatarUrl(e.target.value)}
-              className="flex-1 block w-full min-w-0 bg-nexus-gray-800 border border-nexus-gray-700 rounded-none rounded-l-md py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-              placeholder="https://example.com/avatar.png"
-            />
-             <button type="button" onClick={handleGenerateAvatar} className="relative -ml-px inline-flex items-center space-x-2 px-4 py-2 border border-nexus-gray-700 text-sm font-medium rounded-r-md text-nexus-gray-300 bg-nexus-gray-700 hover:bg-nexus-gray-600 focus:outline-none focus:ring-1 focus:ring-nexus-blue-500 focus:border-nexus-blue-500">
-                <span>Generate</span>
-             </button>
-          </div>
-        </div>
-        <div className="p-4 rounded-md border border-nexus-gray-700 bg-nexus-gray-800/50">
-            <h3 className="text-lg font-medium text-white mb-3">API Configuration</h3>
+      <form onSubmit={handleSubmit} className="space-y-6 max-w-4xl">
+
+        <Section title="Core Identity">
+            <div>
+              <label htmlFor="name" className="block text-sm font-medium text-nexus-gray-300">Name</label>
+              <input
+                id="name"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+              />
+            </div>
+             <div>
+              <label htmlFor="avatarUrl" className="block text-sm font-medium text-nexus-gray-300">Avatar URL</label>
+              <div className="mt-1 flex rounded-md shadow-sm">
+                <input
+                  id="avatarUrl"
+                  type="text"
+                  value={avatarUrl}
+                  onChange={(e) => setAvatarUrl(e.target.value)}
+                  className="flex-1 block w-full min-w-0 bg-nexus-gray-800 border border-nexus-gray-700 rounded-none rounded-l-md py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                  placeholder="https://example.com/avatar.png"
+                />
+                 <button type="button" onClick={handleGenerateAvatar} className="relative -ml-px inline-flex items-center space-x-2 px-4 py-2 border border-nexus-gray-700 text-sm font-medium rounded-r-md text-nexus-gray-300 bg-nexus-gray-700 hover:bg-nexus-gray-600 focus:outline-none focus:ring-1 focus:ring-nexus-blue-500 focus:border-nexus-blue-500">
+                    <span>Generate</span>
+                 </button>
+              </div>
+            </div>
+            <div>
+              <label htmlFor="description" className="block text-sm font-medium text-nexus-gray-300">Description</label>
+              <textarea
+                id="description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={3}
+                className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                placeholder="A brief, one-sentence description of the character."
+              />
+            </div>
+            <div>
+              <label htmlFor="tags" className="block text-sm font-medium text-nexus-gray-300">Tags</label>
+              <input
+                id="tags"
+                type="text"
+                value={tags}
+                onChange={(e) => setTags(e.target.value)}
+                className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                placeholder="Comma-separated, e.g., sci-fi, assistant, funny"
+              />
+            </div>
+        </Section>
+        
+        <Section title="Persona & Prompting">
+             <div>
+              <label htmlFor="physicalAppearance" className="block text-sm font-medium text-nexus-gray-300">Physical Appearance</label>
+              <textarea
+                id="physicalAppearance"
+                value={physicalAppearance}
+                onChange={(e) => setPhysicalAppearance(e.target.value)}
+                rows={3}
+                className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                placeholder="Describe the character's physical appearance in detail."
+              />
+            </div>
+            <div>
+              <label htmlFor="personalityTraits" className="block text-sm font-medium text-nexus-gray-300">Personality Traits</label>
+              <input
+                id="personalityTraits"
+                type="text"
+                value={personalityTraits}
+                onChange={(e) => setPersonalityTraits(e.target.value)}
+                className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                placeholder="Comma-separated traits, e.g., witty, sarcastic, kind, curious"
+              />
+            </div>
+             <div>
+              <label htmlFor="personality" className="block text-sm font-medium text-nexus-gray-300">Role Instruction / System Prompt</label>
+              <textarea
+                id="personality"
+                value={personality}
+                onChange={(e) => setPersonality(e.target.value)}
+                rows={8}
+                className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                placeholder="Describe the character's personality, quirks, and conversation style. This is the main system prompt that guides the AI's behavior."
+              />
+            </div>
+        </Section>
+
+        <Section title="Memory & Lore">
+             <div>
+                <label htmlFor="lore" className="block text-sm font-medium text-nexus-gray-300">Lore</label>
+                <p className="text-xs text-nexus-gray-400 mb-1">Key facts about the character. Add new facts in chat with '/lore [fact]'. One fact per line.</p>
+                <textarea
+                    id="lore"
+                    value={lore.join('\n')}
+                    onChange={(e) => setLore(e.target.value.split('\n'))}
+                    rows={8}
+                    className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                    placeholder="Fact 1 about the character...&#10;Fact 2 about the character..."
+                />
+            </div>
+             <div>
+                <label htmlFor="memory" className="block text-sm font-medium text-nexus-gray-300">Memory</label>
+                 <p className="text-xs text-nexus-gray-400 mb-1">Automatically summarized highlights from conversations.</p>
+                <textarea
+                    id="memory"
+                    value={memory}
+                    readOnly
+                    rows={6}
+                    className="mt-1 block w-full bg-nexus-dark border border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-300 focus:outline-none cursor-not-allowed"
+                />
+            </div>
+        </Section>
+        
+        <Section title="API Configuration">
             <div className="space-y-4">
                 <div>
                     <label htmlFor="api-service" className="block text-sm font-medium text-nexus-gray-300">API Service</label>
@@ -193,19 +288,9 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
                     </>
                 )}
             </div>
-        </div>
-        <div>
-          <label htmlFor="tags" className="block text-sm font-medium text-nexus-gray-300">Tags</label>
-          <input
-            id="tags"
-            type="text"
-            value={tags}
-            onChange={(e) => setTags(e.target.value)}
-            className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-            placeholder="Comma-separated, e.g., sci-fi, assistant, funny"
-          />
-        </div>
-        <div className="flex justify-end space-x-4">
+        </Section>
+       
+        <div className="flex justify-end space-x-4 pt-4">
           <button
             type="button"
             onClick={onCancel}

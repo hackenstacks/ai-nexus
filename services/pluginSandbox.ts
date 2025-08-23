@@ -1,4 +1,3 @@
-
 import { GeminiApiRequest, PluginApiResponse } from "../types";
 import { logger } from "./loggingService";
 
@@ -32,11 +31,11 @@ const workerCode = `
           self.postMessage({ type: 'API_REQUEST', payload: { ticket, apiRequest: { type: 'generateContent', prompt } } });
         });
       },
-      generateImage: (prompt) => {
+      generateImage: (prompt, settings) => {
          return new Promise((resolve, reject) => {
           const ticket = apiTicketCounter++;
           pendingApiRequests.set(ticket, { resolve, reject });
-          self.postMessage({ type: 'API_REQUEST', payload: { ticket, apiRequest: { type: 'generateImage', prompt } } });
+          self.postMessage({ type: 'API_REQUEST', payload: { ticket, apiRequest: { type: 'generateImage', prompt, settings } } });
         });
       }
     }

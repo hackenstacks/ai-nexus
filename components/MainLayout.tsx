@@ -2,10 +2,13 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Character, ChatSession, AppData, Plugin, GeminiApiRequest } from '../types';
 import { loadData, saveData } from '../services/secureStorage';
 import { CharacterList } from './CharacterList';
+import { ChatList } from './ChatList';
 import { CharacterForm } from './CharacterForm';
 import { ChatInterface } from './ChatInterface';
 import { PluginManager } from './PluginManager';
 import { LogViewer } from './LogViewer';
+import { HelpModal } from './HelpModal';
+import { ChatSelectionModal } from './ChatSelectionModal';
 import { PluginSandbox } from '../services/pluginSandbox';
 import * as geminiService from '../services/geminiService';
 import { logger } from '../services/loggingService';
@@ -13,6 +16,8 @@ import { DownloadIcon } from './icons/DownloadIcon';
 import { UploadIcon } from './icons/UploadIcon';
 import { CodeIcon } from './icons/CodeIcon';
 import { TerminalIcon } from './icons/TerminalIcon';
+import { HelpIcon } from './icons/HelpIcon';
+import { PlusIcon } from './icons/PlusIcon';
 
 const defaultImagePlugin: Plugin = {
     id: 'default-image-generator',
@@ -34,7 +39,10 @@ nexus.hooks.register('generateImage', async (payload) => {
       nexus.log('Using direct prompt:', prompt);
     }
     
-    const imageUrl = await nexus.gemini.generateImage(prompt);
+    // The main app passes the plugin settings as part of the request.
+    const settings = payload.settings || {};
+    
+    const imageUrl = await nexus.gemini.generateImage(prompt, settings);
     return { url: imageUrl };
 
   } catch (error) {
@@ -46,21 +54,24 @@ nexus.hooks.register('generateImage', async (payload) => {
 nexus.log('Image Generation plugin loaded.');
 `,
     settings: {
-        service: 'default'
+        service: 'default',
+        style: 'Default (None)',
+        negativePrompt: '',
     }
 };
 
 type View = 'chat' | 'form' | 'plugins';
 
 export const MainLayout: React.FC = () => {
-    const [characters, setCharacters] = useState<Character[]>([]);
-    const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
-    const [plugins, setPlugins] = useState<Plugin[]>([]);
+    const [appData, setAppData] = useState<AppData>({ characters: [], chatSessions: [], plugins: [] });
     
-    const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
+    const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
     const [editingCharacter, setEditingCharacter] = useState<Character | null>(null);
     const [view, setView] = useState<View>('chat');
+
     const [isLogViewerVisible, setIsLogViewerVisible] = useState(false);
+    const [isHelpVisible, setIsHelpVisible] = useState(false);
+    const [isChatModalVisible, setIsChatModalVisible] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const sandboxes = useRef(new Map<string, PluginSandbox>()).current;
@@ -68,45 +79,42 @@ export const MainLayout: React.FC = () => {
     const persistData = useCallback(async (data: AppData) => {
         await saveData(data);
     }, []);
-    
+
     // Secure handler for API requests coming from plugin sandboxes
     const handlePluginApiRequest = useCallback(async (request: GeminiApiRequest) => {
-        const imagePluginSettings = plugins.find(p => p.id === 'default-image-generator')?.settings;
-
         switch (request.type) {
             case 'generateContent':
-                // Plugins calling generateContent will use the default app key for now.
                 return await geminiService.generateContent(request.prompt);
             case 'generateImage':
-                return await geminiService.generateImageFromPrompt(request.prompt, imagePluginSettings);
+                return await geminiService.generateImageFromPrompt(request.prompt, request.settings);
             default:
                 throw new Error('Unknown API request type from plugin.');
         }
-    }, [plugins]);
+    }, []);
 
     useEffect(() => {
         const loadInitialData = async () => {
             logger.log("Loading initial application data...");
             const data = await loadData();
             
-            // Inject default plugin if it doesn't exist
-            let hasDefaultPlugin = data.plugins.some(p => p.id === defaultImagePlugin.id);
+            let hasDefaultPlugin = data.plugins && data.plugins.some(p => p.id === defaultImagePlugin.id);
             if (!hasDefaultPlugin) {
+                if (!data.plugins) data.plugins = [];
                 data.plugins.push(defaultImagePlugin);
                 logger.log("Default image generation plugin injected.");
             } else {
-                // Ensure existing default plugin has a settings object
                 data.plugins = data.plugins.map(p => {
                     if (p.id === defaultImagePlugin.id && !p.settings) {
-                        return { ...p, settings: { service: 'default' } };
+                        return { ...p, settings: defaultImagePlugin.settings };
                     }
                     return p;
                 });
             }
 
-            setCharacters(data.characters);
-            setChatSessions(data.chatSessions);
-            setPlugins(data.plugins);
+            setAppData(data);
+            if (data.chatSessions.length > 0) {
+                setSelectedChatId(data.chatSessions[0].id);
+            }
             logger.log("Application data loaded successfully.", { characters: data.characters.length, sessions: data.chatSessions.length, plugins: data.plugins.length });
         };
         loadInitialData();
@@ -118,7 +126,7 @@ export const MainLayout: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        plugins.forEach(async (plugin) => {
+        appData.plugins?.forEach(async (plugin) => {
             const existingSandbox = sandboxes.get(plugin.id);
             if (plugin.enabled && !existingSandbox) {
                 try {
@@ -136,40 +144,80 @@ export const MainLayout: React.FC = () => {
                 sandboxes.delete(plugin.id);
             }
         });
-        // Prune sandboxes for deleted plugins
         sandboxes.forEach((_, id) => {
-            if (!plugins.some(p => p.id === id)) {
+            if (!appData.plugins?.some(p => p.id === id)) {
                 logger.log(`Pruning sandbox for deleted plugin ID: ${id}`);
                 sandboxes.get(id)?.terminate();
                 sandboxes.delete(id);
             }
         });
 
-    }, [plugins, sandboxes, handlePluginApiRequest]);
+    }, [appData.plugins, sandboxes, handlePluginApiRequest]);
 
     const handleSaveCharacter = (character: Character) => {
-        const isNew = !characters.some(c => c.id === character.id);
-        const updatedCharacters = isNew ? [...characters, character] : characters.map(c => c.id === character.id ? character : c);
-
-        setCharacters(updatedCharacters);
-        persistData({ characters: updatedCharacters, chatSessions, plugins });
+        const isNew = !appData.characters.some(c => c.id === character.id);
+        const updatedCharacters = isNew ? [...appData.characters, character] : appData.characters.map(c => c.id === character.id ? character : c);
+        
+        const updatedData = { ...appData, characters: updatedCharacters };
+        setAppData(updatedData);
+        persistData(updatedData);
         logger.log(`Character ${isNew ? 'created' : 'updated'}: ${character.name}`);
+        
         setView('chat');
         setEditingCharacter(null);
     };
+    
+    const handleCharacterUpdate = (character: Character) => {
+        const updatedCharacters = appData.characters.map(c => c.id === character.id ? character : c);
+        const updatedData = { ...appData, characters: updatedCharacters };
+        setAppData(updatedData);
+        persistData(updatedData);
+        logger.log(`Character data updated programmatically: ${character.name}`);
+    };
 
     const handleDeleteCharacter = (characterId: string) => {
-        if (window.confirm('Are you sure you want to delete this character and all related conversations?')) {
-            const characterName = characters.find(c => c.id === characterId)?.name || 'Unknown';
-            const updatedCharacters = characters.filter(c => c.id !== characterId);
-            const updatedSessions = chatSessions.filter(s => s.characterId !== characterId);
-            setCharacters(updatedCharacters);
-            setChatSessions(updatedSessions);
-            persistData({ characters: updatedCharacters, chatSessions: updatedSessions, plugins });
+        if (window.confirm('Are you sure you want to delete this character? All chats involving this character will also be deleted.')) {
+            const characterName = appData.characters.find(c => c.id === characterId)?.name || 'Unknown';
+            const updatedCharacters = appData.characters.filter(c => c.id !== characterId);
+            const updatedSessions = appData.chatSessions.filter(s => !s.characterIds.includes(characterId));
+            
+            const updatedData = { ...appData, characters: updatedCharacters, chatSessions: updatedSessions };
+            setAppData(updatedData);
+            persistData(updatedData);
             logger.log(`Deleted character and associated sessions: ${characterName}`);
-            if (selectedCharacter?.id === characterId) {
-                setSelectedCharacter(null);
+
+            if (selectedChatId && !updatedSessions.some(s => s.id === selectedChatId)) {
+                setSelectedChatId(updatedSessions.length > 0 ? updatedSessions[0].id : null);
             }
+        }
+    };
+
+    const handleCreateChat = (name: string, characterIds: string[]) => {
+        const newSession: ChatSession = {
+            id: crypto.randomUUID(),
+            name,
+            characterIds,
+            messages: []
+        };
+        const updatedSessions = [...appData.chatSessions, newSession];
+        const updatedData = { ...appData, chatSessions: updatedSessions };
+        setAppData(updatedData);
+        persistData(updatedData);
+        setSelectedChatId(newSession.id);
+        setIsChatModalVisible(false);
+        logger.log(`New chat created: "${name}"`);
+    };
+
+    const handleDeleteChat = (sessionId: string) => {
+        if (window.confirm('Are you sure you want to delete this chat session?')) {
+            const updatedSessions = appData.chatSessions.filter(s => s.id !== sessionId);
+            const updatedData = { ...appData, chatSessions: updatedSessions };
+            setAppData(updatedData);
+            persistData(updatedData);
+            if (selectedChatId === sessionId) {
+                setSelectedChatId(updatedSessions.length > 0 ? updatedSessions[0].id : null);
+            }
+            logger.log(`Chat session deleted: ${sessionId}`);
         }
     };
     
@@ -183,22 +231,23 @@ export const MainLayout: React.FC = () => {
         setView('form');
     };
 
-    const handleSelectCharacter = (character: Character) => {
-        setSelectedCharacter(character);
+    const handleSelectChat = (sessionId: string) => {
+        setSelectedChatId(sessionId);
         setView('chat');
         setEditingCharacter(null);
     };
 
     const handleSessionUpdate = (session: ChatSession) => {
-        const updatedSessions = [...chatSessions];
+        const updatedSessions = [...appData.chatSessions];
         const sessionIndex = updatedSessions.findIndex(s => s.id === session.id);
         if (sessionIndex > -1) {
             updatedSessions[sessionIndex] = session;
         } else {
             updatedSessions.push(session);
         }
-        setChatSessions(updatedSessions);
-        persistData({ characters, chatSessions: updatedSessions, plugins });
+        const updatedData = { ...appData, chatSessions: updatedSessions };
+        setAppData(updatedData);
+        persistData(updatedData);
     };
 
     const handleExportData = async () => {
@@ -272,19 +321,24 @@ export const MainLayout: React.FC = () => {
     };
 
     const handlePluginsUpdate = (updatedPlugins: Plugin[]) => {
-        setPlugins(updatedPlugins);
-        persistData({ characters, chatSessions, plugins: updatedPlugins });
+        const updatedData = { ...appData, plugins: updatedPlugins };
+        setAppData(updatedData);
+        persistData(updatedData);
     };
     
     const triggerPluginHook = useCallback(async <T, R>(hookName: string, data: T): Promise<R> => {
         let processedData: any = data;
-        const enabledPlugins = plugins.filter(p => p.enabled);
+        const enabledPlugins = appData.plugins?.filter(p => p.enabled) || [];
+
+        if (hookName === 'generateImage') {
+            const imagePlugin = appData.plugins?.find(p => p.id === 'default-image-generator');
+            processedData = { ...processedData, settings: imagePlugin?.settings || {} };
+        }
 
         for (const plugin of enabledPlugins) {
             const sandbox = sandboxes.get(plugin.id);
             if (sandbox) {
                 try {
-                    // The result from one plugin is passed as data to the next.
                     processedData = await sandbox.executeHook(hookName, processedData);
                 } catch (error) {
                     logger.error(`Error in plugin '${plugin.name}' during hook '${hookName}':`, error);
@@ -292,9 +346,11 @@ export const MainLayout: React.FC = () => {
             }
         }
         return processedData as R;
-    }, [plugins, sandboxes]);
+    }, [appData.plugins, sandboxes]);
 
     const renderMainContent = () => {
+        const selectedChat = appData.chatSessions.find(s => s.id === selectedChatId);
+
         switch (view) {
             case 'form':
                 return <CharacterForm 
@@ -304,24 +360,25 @@ export const MainLayout: React.FC = () => {
                 />;
             case 'plugins':
                 return <PluginManager
-                    plugins={plugins}
+                    plugins={appData.plugins || []}
                     onPluginsUpdate={handlePluginsUpdate}
                 />;
             case 'chat':
             default:
-                return selectedCharacter ? (
+                return selectedChat ? (
                     <ChatInterface
-                        key={selectedCharacter.id}
-                        character={selectedCharacter}
-                        chatSession={chatSessions.find(s => s.characterId === selectedCharacter.id)}
+                        key={selectedChat.id}
+                        session={selectedChat}
+                        allCharacters={appData.characters}
                         onSessionUpdate={handleSessionUpdate}
                         onTriggerHook={triggerPluginHook}
+                        onCharacterUpdate={handleCharacterUpdate}
                     />
                 ) : (
                     <div className="flex-1 flex items-center justify-center">
                         <div className="text-center text-nexus-gray-500">
                             <h2 className="text-2xl">Welcome to AI Nexus</h2>
-                            <p>Select a character to start chatting, or create a new one.</p>
+                            <p>Create a character and start a new chat to begin.</p>
                         </div>
                     </div>
                 );
@@ -331,25 +388,44 @@ export const MainLayout: React.FC = () => {
     return (
         <div className="flex h-screen bg-nexus-dark text-nexus-gray-200 font-sans">
             {isLogViewerVisible && <LogViewer onClose={() => setIsLogViewerVisible(false)} />}
+            {isHelpVisible && <HelpModal onClose={() => setIsHelpVisible(false)} />}
+            {isChatModalVisible && <ChatSelectionModal characters={appData.characters} onClose={() => setIsChatModalVisible(false)} onCreateChat={handleCreateChat}/>}
+            
             <aside className="w-80 bg-nexus-gray-800 flex flex-col p-4 border-r border-nexus-gray-700">
-                <div className="flex items-center mb-6">
+                <div className="flex items-center justify-between mb-4">
                     <h1 className="text-2xl font-bold text-white">AI Nexus</h1>
                 </div>
-                <CharacterList 
-                    characters={characters}
-                    onSelectCharacter={handleSelectCharacter}
-                    onDeleteCharacter={handleDeleteCharacter}
-                    onEditCharacter={handleEditCharacter}
-                    onAddNew={handleAddNewCharacter}
-                    selectedCharacterId={selectedCharacter?.id}
+
+                <div className="flex justify-between items-center mb-2">
+                    <h2 className="text-lg font-semibold text-white">Chats</h2>
+                    <button onClick={() => setIsChatModalVisible(true)} className="p-2 rounded-md text-nexus-gray-400 hover:bg-nexus-gray-700 hover:text-white transition-colors" title="New Chat">
+                        <PlusIcon className="w-5 h-5" />
+                    </button>
+                </div>
+                <ChatList 
+                    chatSessions={appData.chatSessions}
+                    characters={appData.characters}
+                    selectedChatId={selectedChatId}
+                    onSelectChat={handleSelectChat}
+                    onDeleteChat={handleDeleteChat}
                 />
+                
+                <div className="mt-4 flex-shrink-0">
+                    <CharacterList 
+                        characters={appData.characters}
+                        onDeleteCharacter={handleDeleteCharacter}
+                        onEditCharacter={handleEditCharacter}
+                        onAddNew={handleAddNewCharacter}
+                    />
+                </div>
+
                 <div className="mt-auto pt-4 border-t border-nexus-gray-700 grid grid-cols-2 gap-2">
-                    <button onClick={handleExportData} title="Export Data" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
+                    <button onClick={handleExportData} title="Export All Data" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
                         <DownloadIcon className="w-4 h-4" />
                         <span>Export</span>
                     </button>
                     <input type="file" ref={fileInputRef} onChange={handleImportData} accept=".json" className="hidden" />
-                    <button onClick={() => fileInputRef.current?.click()} title="Import Data" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
+                    <button onClick={() => fileInputRef.current?.click()} title="Import Data from File" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
                         <UploadIcon className="w-4 h-4" />
                         <span>Import</span>
                     </button>
@@ -357,9 +433,13 @@ export const MainLayout: React.FC = () => {
                         <CodeIcon className="w-4 h-4" />
                         <span>Plugins</span>
                     </button>
-                     <button onClick={() => setIsLogViewerVisible(true)} title="View Logs" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
+                     <button onClick={() => setIsLogViewerVisible(true)} title="View Application Logs" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
                         <TerminalIcon className="w-4 h-4" />
                         <span>Logs</span>
+                    </button>
+                    <button onClick={() => setIsHelpVisible(true)} title="Open Help Center" className="col-span-2 flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
+                        <HelpIcon className="w-4 h-4" />
+                        <span>Help</span>
                     </button>
                 </div>
             </aside>

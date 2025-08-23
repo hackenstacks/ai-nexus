@@ -22,7 +22,7 @@ const getAiClient = (apiKey?: string): GoogleGenAI => {
 
 /**
  * A wrapper for fetch that includes a retry mechanism with exponential backoff.
- * This is useful for handling rate limiting (429) errors and transient network issues.
+ * This is useful for handling rate limiting (429) and transient network issues.
  */
 const fetchWithRetry = async (
     url: RequestInfo, 
@@ -136,16 +136,32 @@ const streamOpenAIChatResponse = async (
     }
 };
 
-const generateOpenAIImage = async (prompt: string, config: { [key: string]: any }): Promise<string> => {
-    const response = await fetchWithRetry(config.apiEndpoint, {
+const buildImagePrompt = (prompt: string, settings: { [key: string]: any }): string => {
+    let stylePrompt = '';
+    if (settings.style && settings.style !== 'Default (None)') {
+        if (settings.style === 'Custom' && settings.customStylePrompt) {
+            stylePrompt = `${settings.customStylePrompt}, `;
+        } else if (settings.style !== 'Custom') {
+             stylePrompt = `${settings.style} style, `;
+        }
+    }
+    const negativePrompt = settings.negativePrompt ? `. Negative prompt: ${settings.negativePrompt}` : '';
+    return `${stylePrompt}${prompt}${negativePrompt}`;
+};
+
+const generateOpenAIImage = async (prompt: string, settings: { [key: string]: any }): Promise<string> => {
+    const fullPrompt = buildImagePrompt(prompt, settings);
+    logger.log("Generating OpenAI image with full prompt:", { fullPrompt });
+
+    const response = await fetchWithRetry(settings.apiEndpoint, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${config.apiKey || 'ollama'}`,
+            'Authorization': `Bearer ${settings.apiKey || 'ollama'}`,
         },
         body: JSON.stringify({
-            prompt: prompt,
-            model: config.model || 'dall-e-3',
+            prompt: fullPrompt,
+            model: settings.model || 'dall-e-3',
             n: 1,
             size: "1024x1024",
             response_format: "b64_json",
@@ -168,8 +184,46 @@ const generateOpenAIImage = async (prompt: string, config: { [key: string]: any 
 
 // --- Gemini Service ---
 
+const buildSystemInstruction = (character: Character, allParticipants: Character[] = []): string => {
+    let instruction = `You are an AI character named ${character.name}.\n\n`;
+
+    if (allParticipants.length > 1) {
+        const otherParticipantNames = allParticipants
+            .filter(p => p.id !== character.id)
+            .map(p => p.name)
+            .join(', ');
+        instruction += `You are in a group conversation with: ${otherParticipantNames}. Interact with them naturally based on your persona.\n\n`;
+    }
+
+    instruction += "== CORE IDENTITY ==\n";
+    if (character.description) instruction += `Description: ${character.description}\n`;
+    if (character.physicalAppearance) instruction += `Physical Appearance: ${character.physicalAppearance}\n`;
+    if (character.personalityTraits) instruction += `Personality Traits: ${character.personalityTraits}\n`;
+    instruction += "\n";
+
+    if (character.personality) {
+        instruction += "== ROLE INSTRUCTION ==\n";
+        instruction += `${character.personality}\n\n`;
+    }
+
+    if (character.memory) {
+        instruction += "== MEMORY (Recent Events) ==\n";
+        instruction += `${character.memory}\n\n`;
+    }
+
+    if (character.lore && character.lore.length > 0 && character.lore.some(l => l.trim() !== '')) {
+        instruction += "== LORE (Key Facts) ==\n";
+        instruction += character.lore.filter(fact => fact.trim() !== '').map(fact => `- ${fact}`).join('\n') + '\n\n';
+    }
+    
+    instruction += "Engage in conversation based on this complete persona. Do not break character. Respond to the user's last message.";
+
+    return instruction;
+};
+
 const streamGeminiChatResponse = async (
     character: Character,
+    systemInstruction: string,
     history: Message[],
     onChunk: (chunk: string) => void
 ): Promise<void> => {
@@ -179,12 +233,6 @@ const streamGeminiChatResponse = async (
     }
 
     const ai = getAiClient(customApiKey);
-
-    const systemInstruction = `You are an AI character named ${character.name}.
-Description: ${character.description}
-Personality: ${character.personality}
-
-Engage in conversation based on this persona. Do not break character. Respond to the user's last message.`;
     
     const contents = history.map(msg => ({
         role: msg.role,
@@ -207,11 +255,14 @@ Engage in conversation based on this persona. Do not break character. Respond to
     }
 };
 
-const generateGeminiImage = async (prompt: string, apiKey?: string): Promise<string> => {
-    const ai = getAiClient(apiKey);
+const generateGeminiImage = async (prompt: string, settings: { [key: string]: any }): Promise<string> => {
+    const ai = getAiClient(settings?.apiKey);
+    const fullPrompt = buildImagePrompt(prompt, settings);
+    logger.log("Generating Gemini image with full prompt:", { fullPrompt });
+
     const response = await ai.models.generateImages({
         model: 'imagen-3.0-generate-002',
-        prompt: prompt,
+        prompt: fullPrompt,
         config: {
             numberOfImages: 1,
             outputMimeType: 'image/png',
@@ -230,11 +281,12 @@ const generateGeminiImage = async (prompt: string, apiKey?: string): Promise<str
 
 export const streamChatResponse = async (
     character: Character,
+    allParticipants: Character[],
     history: Message[],
     onChunk: (chunk: string) => void
 ): Promise<void> => {
     const config = character.apiConfig || { service: 'default' };
-    const systemInstruction = `You are an AI character named ${character.name}.\nDescription: ${character.description}\nPersonality: ${character.personality}\n\nEngage in conversation based on this persona. Do not break character. Respond to the user's last message.`;
+    const systemInstruction = buildSystemInstruction(character, allParticipants);
 
     if (config.service === 'openai') {
         logger.log(`Using OpenAI-compatible API for character: ${character.name}`, { endpoint: config.apiEndpoint, model: config.model });
@@ -245,7 +297,7 @@ export const streamChatResponse = async (
         await streamOpenAIChatResponse(config, systemInstruction, history, onChunk);
     } else { // Defaulting to Gemini
         logger.log(`Using Gemini API for character: ${character.name}`);
-        await streamGeminiChatResponse(character, history, onChunk);
+        await streamGeminiChatResponse(character, systemInstruction, history, onChunk);
     }
 };
 
@@ -265,7 +317,7 @@ export const generateImageFromPrompt = async (prompt: string, settings?: { [key:
             return await generateOpenAIImage(prompt, { ...settings, apiEndpoint: endpoint });
         } else {
             logger.log("Using Gemini API for image generation.");
-            return await generateGeminiImage(prompt, settings?.apiKey);
+            return await generateGeminiImage(prompt, settings);
         }
     } catch (error) {
         logger.error("Error in generateImageFromPrompt:", error);
@@ -285,4 +337,27 @@ export const generateContent = async (prompt: string, apiKey?: string): Promise<
     logger.error("Error in generateContent:", error);
     throw error;
   }
+};
+
+export const streamGenericResponse = async (
+    systemInstruction: string,
+    prompt: string,
+    onChunk: (chunk: string) => void,
+    apiKey?: string
+): Promise<void> => {
+    try {
+        const ai = getAiClient(apiKey);
+        const responseStream = await ai.models.generateContentStream({
+            model: 'gemini-2.5-flash',
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            config: { systemInstruction: systemInstruction }
+        });
+
+        for await (const chunk of responseStream) {
+            onChunk(chunk.text);
+        }
+    } catch (error) {
+        logger.error("Error generating generic content stream:", error);
+        onChunk("Sorry, an error occurred while responding.");
+    }
 };

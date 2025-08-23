@@ -1,7 +1,8 @@
 export interface Message {
-  role: 'user' | 'model';
+  role: 'user' | 'model' | 'narrator';
   content: string;
   timestamp: string;
+  characterId?: string; // Identifies which character sent a 'model' message
   attachment?: {
     type: 'image';
     status: 'loading' | 'done' | 'error';
@@ -12,7 +13,8 @@ export interface Message {
 
 export interface ChatSession {
   id: string;
-  characterId: string;
+  characterIds: string[];
+  name: string;
   messages: Message[];
 }
 
@@ -27,11 +29,16 @@ export interface Character {
   id: string;
   name: string;
   description: string;
-  personality: string;
+  personality: string; // Will be used as Role Instruction
   avatarUrl: string;
   tags: string[];
   createdAt: string;
   apiConfig?: ApiConfig;
+  // New fields for more detailed characters
+  physicalAppearance?: string;
+  personalityTraits?: string; // Comma-separated
+  lore?: string[];
+  memory?: string;
 }
 
 export interface Plugin {
@@ -54,7 +61,7 @@ export interface AppData {
 // Types for the secure plugin API bridge
 export type GeminiApiRequest = 
   | { type: 'generateContent'; prompt: string }
-  | { type: 'generateImage'; prompt: string };
+  | { type: 'generateImage'; prompt: string, settings?: { [key: string]: any } };
 
 export interface PluginApiRequest {
   ticket: number;

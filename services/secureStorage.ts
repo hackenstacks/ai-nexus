@@ -1,5 +1,4 @@
-
-import { AppData } from '../types';
+import { AppData, ChatSession } from '../types';
 import { STORAGE_KEY_DATA, STORAGE_KEY_PASS_VERIFIER } from '../constants';
 import { logger } from './loggingService';
 
@@ -189,6 +188,25 @@ export const loadData = async (): Promise<AppData> => {
     try {
         const jsonString = decrypt(encryptedData);
         const data = JSON.parse(jsonString) as AppData;
+
+        // Migration logic for chat sessions
+        if (data.chatSessions && data.chatSessions.length > 0) {
+            data.chatSessions = data.chatSessions.map((session: any) => {
+                if (session.characterId && !session.characterIds) {
+                    logger.log("Migrating old chat session format for session ID:", session.id);
+                    const character = data.characters.find(c => c.id === session.characterId);
+                    const migratedSession: ChatSession = {
+                        id: session.id,
+                        characterIds: [session.characterId],
+                        name: character ? `Chat with ${character.name}` : 'Untitled Chat',
+                        messages: session.messages
+                    };
+                    return migratedSession;
+                }
+                return session as ChatSession;
+            });
+        }
+
         // Ensure all top-level keys exist for backward compatibility
         return {
             characters: data.characters || [],

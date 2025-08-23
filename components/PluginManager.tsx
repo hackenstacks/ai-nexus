@@ -32,6 +32,8 @@ nexus.hooks.register('beforeMessageSend', (payload) => {
 nexus.log('UPPERCASE plugin loaded and ready.');
 `;
 
+const imageStyles = ["Default (None)", "Anime/Manga", "Photorealistic", "Digital Painting", "Fantasy Art", "Cyberpunk", "Vintage Photo", "Low Poly", "Custom"];
+
 export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPluginsUpdate }) => {
   const [editingPlugin, setEditingPlugin] = useState<Plugin | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -211,6 +213,7 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
             value={formState.name}
             onChange={(e) => setFormState(s => ({...s, name: e.target.value}))}
             className="w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+            readOnly={isDefaultImagePlugin}
           />
           <input
             type="text"
@@ -221,7 +224,43 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
           />
           {isDefaultImagePlugin && (
             <div className="p-4 rounded-md border border-nexus-gray-700 bg-nexus-gray-800/50 space-y-4">
-              <h3 className="text-lg font-medium text-white mb-3">Image Generation API Configuration</h3>
+              <h3 className="text-lg font-medium text-white mb-3">Image Generation Settings</h3>
+               <div>
+                    <label htmlFor="image-style" className="block text-sm font-medium text-nexus-gray-300">Image Style</label>
+                    <select
+                        id="image-style"
+                        value={formState.settings?.style || 'Default (None)'}
+                        onChange={(e) => handleSettingsChange('style', e.target.value)}
+                        className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                    >
+                        {imageStyles.map(style => <option key={style} value={style}>{style}</option>)}
+                    </select>
+                </div>
+                 {formState.settings?.style === 'Custom' && (
+                     <div>
+                        <label htmlFor="custom-style-prompt" className="block text-sm font-medium text-nexus-gray-300">Custom Style Prompt</label>
+                        <textarea
+                            id="custom-style-prompt"
+                            value={formState.settings?.customStylePrompt || ''}
+                            onChange={(e) => handleSettingsChange('customStylePrompt', e.target.value)}
+                            rows={2}
+                            className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                            placeholder="e.g., in the style of vaporwave, cinematic lighting"
+                        />
+                     </div>
+                )}
+                <div>
+                    <label htmlFor="negative-prompt" className="block text-sm font-medium text-nexus-gray-300">Negative Prompt</label>
+                    <textarea
+                        id="negative-prompt"
+                        value={formState.settings?.negativePrompt || ''}
+                        onChange={(e) => handleSettingsChange('negativePrompt', e.target.value)}
+                        rows={2}
+                        className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                        placeholder="e.g., ugly, blurry, deformed"
+                    />
+                </div>
+              <h3 className="text-lg font-medium text-white pt-4 border-t border-nexus-gray-700">API Configuration</h3>
               <div>
                 <label htmlFor="api-service" className="block text-sm font-medium text-nexus-gray-300">API Service</label>
                 <select 
@@ -293,7 +332,7 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
               placeholder="Enter your plugin code here..."
               value={formState.code}
               onChange={(e) => setFormState(s => ({...s, code: e.target.value}))}
-              className={`flex-1 w-full bg-nexus-dark border border-nexus-gray-700 rounded-md py-2 px-3 text-white font-mono text-sm focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500 resize-none ${isDefaultImagePlugin ? 'opacity-70' : ''}`}
+              className={`flex-1 w-full bg-nexus-dark border border-nexus-gray-700 rounded-md py-2 px-3 text-white font-mono text-sm focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500 resize-none ${isDefaultImagePlugin ? 'opacity-70 cursor-not-allowed' : ''}`}
               spellCheck="false"
               readOnly={isDefaultImagePlugin}
             />
@@ -313,15 +352,15 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
         <h2 className="text-3xl font-bold text-white">Plugin Manager</h2>
         <div className="flex items-center space-x-2">
             <input type="file" ref={fileInputRef} onChange={handleImport} accept=".json" className="hidden" />
-            <button onClick={() => fileInputRef.current?.click()} className="flex items-center space-x-2 py-2 px-3 rounded-md text-white bg-nexus-gray-700 hover:bg-nexus-gray-600">
+            <button onClick={() => fileInputRef.current?.click()} title="Import Plugin(s) from File" className="flex items-center space-x-2 py-2 px-3 rounded-md text-white bg-nexus-gray-700 hover:bg-nexus-gray-600">
                 <UploadIcon className="w-5 h-5"/>
                 <span>Import</span>
             </button>
-            <button onClick={handleExportAll} className="flex items-center space-x-2 py-2 px-3 rounded-md text-white bg-nexus-gray-700 hover:bg-nexus-gray-600">
+            <button onClick={handleExportAll} title="Export All Plugins" className="flex items-center space-x-2 py-2 px-3 rounded-md text-white bg-nexus-gray-700 hover:bg-nexus-gray-600">
                 <DownloadIcon className="w-5 h-5"/>
                 <span>Export All</span>
             </button>
-            <button onClick={() => setIsCreating(true)} className="flex items-center space-x-2 py-2 px-4 rounded-md text-white bg-nexus-blue-600 hover:bg-nexus-blue-500">
+            <button onClick={() => setIsCreating(true)} title="Create a New Plugin" className="flex items-center space-x-2 py-2 px-4 rounded-md text-white bg-nexus-blue-600 hover:bg-nexus-blue-500">
                 <PlusIcon className="w-5 h-5" />
                 <span>New Plugin</span>
             </button>
