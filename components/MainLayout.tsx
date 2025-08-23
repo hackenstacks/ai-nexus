@@ -223,13 +223,9 @@ export const MainLayout: React.FC = () => {
                 };
 
                 if (window.confirm('This will overwrite all current data. Are you sure you want to proceed?')) {
-                    setCharacters(importedData.characters);
-                    setChatSessions(importedData.chatSessions);
-                    setPlugins(importedData.plugins);
                     await persistData(importedData);
-                    setSelectedCharacter(null);
-                    setView('chat');
-                    alert('Data imported successfully!');
+                    alert('Data imported successfully! The application will now reload to apply the changes.');
+                    window.location.reload();
                 }
             } catch (error) {
                 console.error("Import failed:", error);
