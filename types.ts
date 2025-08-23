@@ -2,6 +2,12 @@ export interface Message {
   role: 'user' | 'model';
   content: string;
   timestamp: string;
+  attachment?: {
+    type: 'image';
+    status: 'loading' | 'done' | 'error';
+    url?: string;
+    prompt?: string;
+  };
 }
 
 export interface ChatSession {
@@ -32,4 +38,20 @@ export interface AppData {
   characters: Character[];
   chatSessions: ChatSession[];
   plugins?: Plugin[];
+}
+
+// Types for the secure plugin API bridge
+export type GeminiApiRequest = 
+  | { type: 'generateContent'; prompt: string }
+  | { type: 'generateImage'; prompt: string };
+
+export interface PluginApiRequest {
+  ticket: number;
+  apiRequest: GeminiApiRequest;
+}
+
+export interface PluginApiResponse {
+  ticket: number;
+  result?: any;
+  error?: string;
 }

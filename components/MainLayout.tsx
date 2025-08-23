@@ -1,14 +1,48 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Character, ChatSession, AppData, Plugin } from '../types';
+import { Character, ChatSession, AppData, Plugin, GeminiApiRequest } from '../types';
 import { loadData, saveData } from '../services/secureStorage';
 import { CharacterList } from './CharacterList';
 import { CharacterForm } from './CharacterForm';
 import { ChatInterface } from './ChatInterface';
 import { PluginManager } from './PluginManager';
 import { PluginSandbox } from '../services/pluginSandbox';
+import * as geminiService from '../services/geminiService';
 import { DownloadIcon } from './icons/DownloadIcon';
 import { UploadIcon } from './icons/UploadIcon';
 import { CodeIcon } from './icons/CodeIcon';
+
+const defaultImagePlugin: Plugin = {
+    id: 'default-image-generator',
+    name: 'Image Generation',
+    description: 'Generates images from prompts. Single-click the image icon for a prompt, double-click to summarize chat context.',
+    enabled: true,
+    code: `
+// Default Image Generation Plugin
+nexus.hooks.register('generateImage', async (payload) => {
+  try {
+    let prompt;
+    if (payload.type === 'summary') {
+      nexus.log('Summarizing content for image prompt...');
+      const summaryPrompt = \`Based on the following conversation, create a short, visually descriptive prompt for an image generation model. The prompt should capture the essence of the last few messages. Be creative and concise. Conversation:\\n\\n\${payload.value}\`;
+      prompt = await nexus.gemini.generateContent(summaryPrompt);
+      nexus.log('Generated prompt from summary:', prompt);
+    } else {
+      prompt = payload.value;
+      nexus.log('Using direct prompt:', prompt);
+    }
+    
+    const imageUrl = await nexus.gemini.generateImage(prompt);
+    return { url: imageUrl };
+
+  } catch (error) {
+    nexus.log('Error in image generation plugin:', error.message);
+    // Return an error structure that the UI can handle
+    return { error: error.message };
+  }
+});
+nexus.log('Image Generation plugin loaded.');
+`
+};
 
 type View = 'chat' | 'form' | 'plugins';
 
@@ -27,43 +61,69 @@ export const MainLayout: React.FC = () => {
     const persistData = useCallback(async (data: AppData) => {
         await saveData(data);
     }, []);
+    
+    // Secure handler for API requests coming from plugin sandboxes
+    const handlePluginApiRequest = useCallback(async (request: GeminiApiRequest) => {
+        switch (request.type) {
+            case 'generateContent':
+                return await geminiService.generateContent(request.prompt);
+            case 'generateImage':
+                return await geminiService.generateImageFromPrompt(request.prompt);
+            default:
+                throw new Error('Unknown API request type from plugin.');
+        }
+    }, []);
 
     useEffect(() => {
         const loadInitialData = async () => {
             const data = await loadData();
+            
+            // Inject default plugin if it doesn't exist
+            const hasDefaultPlugin = data.plugins.some(p => p.id === defaultImagePlugin.id);
+            if (!hasDefaultPlugin) {
+                data.plugins.push(defaultImagePlugin);
+            }
+
             setCharacters(data.characters);
             setChatSessions(data.chatSessions);
             setPlugins(data.plugins);
         };
         loadInitialData();
 
-        // Cleanup sandboxes on component unmount
         return () => {
             sandboxes.forEach(sandbox => sandbox.terminate());
             sandboxes.clear();
         };
     }, []);
 
-    // Effect to manage sandboxes based on plugin state
     useEffect(() => {
         plugins.forEach(async (plugin) => {
-            if (plugin.enabled && !sandboxes.has(plugin.id)) {
+            const existingSandbox = sandboxes.get(plugin.id);
+            if (plugin.enabled && !existingSandbox) {
                 try {
                     console.log(`Initializing sandbox for plugin: ${plugin.name}`);
-                    const sandbox = new PluginSandbox();
+                    const sandbox = new PluginSandbox(handlePluginApiRequest);
                     await sandbox.loadCode(plugin.code);
                     sandboxes.set(plugin.id, sandbox);
                 } catch (error) {
                     console.error(`Failed to load plugin "${plugin.name}":`, error);
                     alert(`Error loading plugin "${plugin.name}". Check console for details.`);
                 }
-            } else if (!plugin.enabled && sandboxes.has(plugin.id)) {
+            } else if (!plugin.enabled && existingSandbox) {
                 console.log(`Terminating sandbox for disabled plugin: ${plugin.name}`);
-                sandboxes.get(plugin.id)?.terminate();
+                existingSandbox.terminate();
                 sandboxes.delete(plugin.id);
             }
         });
-    }, [plugins, sandboxes]);
+        // Prune sandboxes for deleted plugins
+        sandboxes.forEach((_, id) => {
+            if (!plugins.some(p => p.id === id)) {
+                sandboxes.get(id)?.terminate();
+                sandboxes.delete(id);
+            }
+        });
+
+    }, [plugins, sandboxes, handlePluginApiRequest]);
 
     const handleSaveCharacter = (character: Character) => {
         const updatedCharacters = [...characters];
@@ -182,22 +242,22 @@ export const MainLayout: React.FC = () => {
         persistData({ characters, chatSessions, plugins: updatedPlugins });
     };
     
-    const triggerPluginHook = useCallback(async <T,>(hookName: string, data: T): Promise<T> => {
-        let processedData = data;
+    const triggerPluginHook = useCallback(async <T, R>(hookName: string, data: T): Promise<R> => {
+        let processedData: any = data;
         const enabledPlugins = plugins.filter(p => p.enabled);
 
         for (const plugin of enabledPlugins) {
             const sandbox = sandboxes.get(plugin.id);
             if (sandbox) {
                 try {
+                    // The result from one plugin is passed as data to the next.
                     processedData = await sandbox.executeHook(hookName, processedData);
                 } catch (error) {
                     console.error(`Error in plugin '${plugin.name}' during hook '${hookName}':`, error);
-                    // Continue with the last successfully processed data
                 }
             }
         }
-        return processedData;
+        return processedData as R;
     }, [plugins, sandboxes]);
 
     const renderMainContent = () => {

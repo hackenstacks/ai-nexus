@@ -1,17 +1,18 @@
+import { GeminiApiRequest, PluginApiResponse } from "../types";
+
 // This string contains the code that will be executed inside the Web Worker.
 // It creates a sandboxed environment for the plugin code.
 const workerCode = `
   let userHooks = {};
+  let apiTicketCounter = 0;
+  const pendingApiRequests = new Map();
 
   // The 'nexus' object is the only global API available to the plugin code.
-  // It provides a safe, limited interface to interact with the main application.
   const nexus = {
     log: (...args) => {
-      // Allows plugins to log to the main console for debugging, prefixed for clarity.
       self.postMessage({ type: 'LOG', payload: args });
     },
     hooks: {
-      // Plugins use this function to register their logic for specific events (hooks).
       register: (hookName, callback) => {
         if (typeof callback === 'function') {
           userHooks[hookName] = callback;
@@ -20,16 +21,31 @@ const workerCode = `
         }
       },
     },
+    // Provides a secure bridge to the main application's Gemini API services.
+    gemini: {
+      generateContent: (prompt) => {
+        return new Promise((resolve, reject) => {
+          const ticket = apiTicketCounter++;
+          pendingApiRequests.set(ticket, { resolve, reject });
+          self.postMessage({ type: 'API_REQUEST', payload: { ticket, apiRequest: { type: 'generateContent', prompt } } });
+        });
+      },
+      generateImage: (prompt) => {
+         return new Promise((resolve, reject) => {
+          const ticket = apiTicketCounter++;
+          pendingApiRequests.set(ticket, { resolve, reject });
+          self.postMessage({ type: 'API_REQUEST', payload: { ticket, apiRequest: { type: 'generateImage', prompt } } });
+        });
+      }
+    }
   };
 
-  self.onmessage = (e) => {
+  self.onmessage = async (e) => {
     const { type, payload } = e.data;
 
     switch (type) {
-      // 'LOAD_CODE': Receives the plugin code from the main thread and executes it.
       case 'LOAD_CODE':
         try {
-          // The plugin code is executed in a restricted scope with only 'nexus' available.
           const pluginFunction = new Function('nexus', payload.code);
           pluginFunction(nexus);
           self.postMessage({ type: 'LOAD_SUCCESS' });
@@ -38,19 +54,30 @@ const workerCode = `
         }
         break;
 
-      // 'EXECUTE_HOOK': Triggered by the main app to run a registered hook.
       case 'EXECUTE_HOOK':
         const hook = userHooks[payload.hookName];
         if (hook) {
           try {
-            const result = hook(payload.data);
+            // Hooks can now be async and use the nexus.gemini API
+            const result = await hook(payload.data);
             self.postMessage({ type: 'HOOK_RESULT', ticket: payload.ticket, result: result });
           } catch (error) {
             self.postMessage({ type: 'HOOK_ERROR', ticket: payload.ticket, error: error.message });
           }
         } else {
-          // If no hook is registered, resolve immediately with the original data.
           self.postMessage({ type: 'HOOK_RESULT', ticket: payload.ticket, result: payload.data });
+        }
+        break;
+        
+      case 'API_RESPONSE':
+        const promise = pendingApiRequests.get(payload.ticket);
+        if (promise) {
+          if (payload.error) {
+            promise.reject(new Error(payload.error));
+          } else {
+            promise.resolve(payload.result);
+          }
+          pendingApiRequests.delete(payload.ticket);
         }
         break;
     }
@@ -64,17 +91,27 @@ export class PluginSandbox {
   private worker: Worker;
   private ticketCounter = 0;
   private pendingHooks = new Map<number, { resolve: (value: any) => void; reject: (reason?: any) => void }>();
+  private apiRequestHandler: (request: GeminiApiRequest) => Promise<any>;
 
-  constructor() {
-    // The worker is created from a Blob URL containing the worker code string.
-    // This makes the worker self-contained and avoids needing a separate file.
+  constructor(apiRequestHandler: (request: GeminiApiRequest) => Promise<any>) {
+    this.apiRequestHandler = apiRequestHandler;
     const blob = new Blob([workerCode], { type: 'application/javascript' });
     this.worker = new Worker(URL.createObjectURL(blob));
 
-    this.worker.onmessage = (e) => {
+    this.worker.onmessage = async (e) => {
       const { type, payload, ticket, result, error } = e.data;
+
       if (type === 'LOG') {
         console.log('[Plugin Sandbox]', ...payload);
+      } else if (type === 'API_REQUEST') {
+        try {
+          const apiResult = await this.apiRequestHandler(payload.apiRequest);
+          const response: PluginApiResponse = { ticket: payload.ticket, result: apiResult };
+          this.worker.postMessage({ type: 'API_RESPONSE', payload: response });
+        } catch (apiError) {
+          const response: PluginApiResponse = { ticket: payload.ticket, error: apiError instanceof Error ? apiError.message : String(apiError) };
+          this.worker.postMessage({ type: 'API_RESPONSE', payload: response });
+        }
       } else if (ticket !== undefined && this.pendingHooks.has(ticket)) {
         const promise = this.pendingHooks.get(ticket)!;
         if (type === 'HOOK_RESULT') {
@@ -88,11 +125,6 @@ export class PluginSandbox {
     };
   }
 
-  /**
-   * Loads and executes the plugin code inside the sandbox.
-   * @param code The JavaScript code of the plugin.
-   * @returns A promise that resolves on successful load or rejects on error.
-   */
   loadCode(code: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const loadListener = (e: MessageEvent) => {
@@ -109,12 +141,6 @@ export class PluginSandbox {
     });
   }
 
-  /**
-   * Executes a registered hook within the plugin's sandbox.
-   * @param hookName The name of the hook to execute (e.g., 'beforeMessageSend').
-   * @param data The payload to send to the hook.
-   * @returns A promise that resolves with the data returned by the plugin's hook function.
-   */
   executeHook<T>(hookName: string, data: T): Promise<T> {
     return new Promise((resolve, reject) => {
       const ticket = this.ticketCounter++;
@@ -126,9 +152,6 @@ export class PluginSandbox {
     });
   }
 
-  /**
-   * Terminates the worker to clean up resources.
-   */
   terminate() {
     this.worker.terminate();
   }

@@ -2,12 +2,13 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Character, ChatSession, Message } from '../types';
 import { streamChatResponse } from '../services/geminiService';
 import { ChatBubbleIcon } from './icons/ChatBubbleIcon';
+import { ImageIcon } from './icons/ImageIcon';
 
 interface ChatInterfaceProps {
   character: Character;
   chatSession?: ChatSession;
   onSessionUpdate: (session: ChatSession) => void;
-  onTriggerHook: <T>(hookName: string, data: T) => Promise<T>;
+  onTriggerHook: <T, R>(hookName: string, data: T) => Promise<R>;
 }
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({ character, chatSession, onSessionUpdate, onTriggerHook }) => {
@@ -21,126 +22,235 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ character, chatSes
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const clickTimeout = useRef<number | null>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [session.messages]);
+  }, [session.messages, isStreaming]);
 
-  const handleSendMessage = useCallback(async () => {
-    if (!input.trim() || isStreaming) return;
-
-    // --- Plugin Hook: beforeMessageSend ---
-    // Plugins can modify the message content before it's processed.
-    const processedInput = await onTriggerHook('beforeMessageSend', { content: input });
-
-    const userMessage: Message = {
-      role: 'user',
-      content: processedInput.content,
-      timestamp: new Date().toISOString(),
-    };
-
-    const updatedHistoryForAPI = [...session.messages, userMessage];
-
-    const modelMessagePlaceholder: Message = {
+  const handleImageGeneration = useCallback(async (type: 'prompt' | 'summary', value: string) => {
+    const tempId = crypto.randomUUID(); // Used for finding the message later
+    const imageMessage: Message = {
       role: 'model',
       content: '',
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString() + tempId, // Add tempId to ensure uniqueness
+      attachment: { type: 'image', status: 'loading', prompt: type === 'prompt' ? value : "Generating from chat context..." }
     };
+
+    const newSessionWithLoading = { ...session, messages: [...session.messages, imageMessage] };
+    setSession(newSessionWithLoading);
     
-    setSession(prev => ({...prev, messages: [...prev.messages, userMessage, modelMessagePlaceholder]}));
-    setInput('');
-    setIsStreaming(true);
+    try {
+        const result: { url?: string; error?: string } = await onTriggerHook('generateImage', { type, value });
+        
+        if (result.url) {
+            const finalSession: ChatSession = {
+                ...newSessionWithLoading,
+                messages: newSessionWithLoading.messages.map(m => m.timestamp === imageMessage.timestamp ? { ...m, attachment: { ...m.attachment!, status: 'done', url: result.url }} : m)
+            };
+            setSession(finalSession);
+            onSessionUpdate(finalSession);
+        } else {
+            throw new Error(result.error || 'Plugin failed to return an image URL.');
+        }
 
-    let fullResponse = '';
-    
-    await streamChatResponse(character, updatedHistoryForAPI, (chunk) => {
-        fullResponse += chunk;
-        setSession(prev => {
-            const updatedMessages = [...prev.messages];
-            const lastMsgIndex = updatedMessages.length - 1;
-            
-            if(lastMsgIndex >= 0 && prev.messages[lastMsgIndex].role === 'model'){
-                updatedMessages[lastMsgIndex] = { ...updatedMessages[lastMsgIndex], content: fullResponse };
-                return {...prev, messages: updatedMessages};
-            }
-            return prev;
-        });
-    });
+    } catch (error) {
+        console.error("Image generation failed:", error);
+        const finalSession: ChatSession = {
+            ...newSessionWithLoading,
+            messages: newSessionWithLoading.messages.map(m => m.timestamp === imageMessage.timestamp ? { ...m, attachment: { ...m.attachment!, status: 'error' }} : m)
+        };
+        setSession(finalSession);
+        onSessionUpdate(finalSession);
+    }
 
-    setIsStreaming(false);
+  }, [onTriggerHook, session, onSessionUpdate]);
 
-    // After streaming is complete, get the most recent session state
-    // and pass it to the parent for persistence.
-    setSession(currentSession => {
-        onSessionUpdate(currentSession);
-        return currentSession;
-    });
-
-  }, [input, isStreaming, character, session.messages, onSessionUpdate, onTriggerHook]);
-
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
+  const handleImageClick = () => {
+    const prompt = window.prompt("Enter a prompt for the image:");
+    if (prompt) {
+      handleImageGeneration('prompt', prompt);
     }
   };
 
+  const handleImageDoubleClick = () => {
+    const lastMessages = session.messages.slice(-4).map(m => `${m.role}: ${m.content}`).join('\n');
+    if (lastMessages.trim().length === 0) {
+        alert("Not enough conversation context to generate an image. Please type a message first.");
+        return;
+    }
+    handleImageGeneration('summary', lastMessages);
+  };
+  
+  const handleImageButtonClick = () => {
+    if (clickTimeout.current) {
+      // Double click
+      clearTimeout(clickTimeout.current);
+      clickTimeout.current = null;
+      handleImageDoubleClick();
+    } else {
+      // Single click
+      clickTimeout.current = window.setTimeout(() => {
+        clickTimeout.current = null;
+        handleImageClick();
+      }, 300); // 300ms delay to wait for a potential double click
+    }
+  };
+
+  const handleSendMessage = useCallback(async () => {
+    const trimmedInput = input.trim();
+    if (!trimmedInput || isStreaming) return;
+
+    const userMessage: Message = {
+      role: 'user',
+      content: trimmedInput,
+      timestamp: new Date().toISOString(),
+    };
+    
+    // Use a function for setting state to ensure we have the latest messages
+    setSession(prevSession => {
+        const updatedMessages = [...prevSession.messages, userMessage];
+        const updatedSession = { ...prevSession, messages: updatedMessages };
+        onSessionUpdate(updatedSession); // Persist user message immediately
+
+        // The streaming logic starts here
+        (async () => {
+            setIsStreaming(true);
+            setInput('');
+            
+            // Give the model a placeholder to start filling
+            const modelPlaceholder: Message = { role: 'model', content: '', timestamp: new Date().toISOString() };
+            setSession(currentSession => ({...currentSession, messages: [...currentSession.messages, modelPlaceholder]}));
+
+            let fullResponse = '';
+            
+            try {
+                // Let plugins modify the message before sending
+                const processedPayload = await onTriggerHook('beforeMessageSend', { content: trimmedInput });
+                const finalUserMessage = { ...userMessage, content: (processedPayload as { content: string }).content || trimmedInput };
+                
+                await streamChatResponse(
+                    character,
+                    [...updatedMessages.slice(0, -1), finalUserMessage],
+                    (chunk) => {
+                        fullResponse += chunk;
+                        // Update the last message (the placeholder) in the stream
+                        setSession(currentSession => ({
+                            ...currentSession,
+                            messages: currentSession.messages.map((msg, index) =>
+                                index === currentSession.messages.length - 1
+                                    ? { ...msg, content: fullResponse }
+                                    : msg
+                            ),
+                        }));
+                    }
+                );
+            } catch (error) {
+                 console.error("Streaming failed:", error);
+                 setSession(currentSession => ({
+                    ...currentSession,
+                    messages: currentSession.messages.map((msg, index) =>
+                        index === currentSession.messages.length - 1
+                            ? { ...msg, content: "Sorry, an error occurred while responding." }
+                            : msg
+                    ),
+                }));
+            } finally {
+                setIsStreaming(false);
+                // Final persistence after stream is complete
+                setSession(currentSession => {
+                    onSessionUpdate(currentSession);
+                    return currentSession;
+                });
+            }
+        })();
+        
+        return updatedSession;
+    });
+
+  }, [input, isStreaming, character, onSessionUpdate, onTriggerHook]);
+
+  const renderMessageContent = (message: Message) => {
+    if (message.attachment?.type === 'image') {
+        const { status, url, prompt } = message.attachment;
+        if (status === 'loading') {
+            return (
+                <div className="p-4 bg-nexus-gray-700 rounded-lg animate-pulse">
+                    <p className="text-sm text-nexus-gray-300">Generating image...</p>
+                    <p className="text-xs text-nexus-gray-400 truncate">Prompt: {prompt}</p>
+                </div>
+            );
+        }
+        if (status === 'done' && url) {
+            return <img src={url} alt={prompt} className="rounded-lg max-w-sm" />;
+        }
+        if (status === 'error') {
+            return <p className="text-red-400">Failed to generate image.</p>;
+        }
+    }
+    // Render text with line breaks
+    return message.content.split('\n').map((line, index) => (
+        <React.Fragment key={index}>
+            {line}
+            <br />
+        </React.Fragment>
+    ));
+  };
+
   return (
-    <div className="flex-1 flex flex-col bg-nexus-gray-900">
-      <header className="flex items-center p-4 border-b border-nexus-gray-700 bg-nexus-gray-800 shadow-md z-10">
-        <img
-          src={character.avatarUrl || `https://picsum.photos/seed/${character.id}/40/40`}
-          alt={character.name}
-          className="w-10 h-10 rounded-full mr-4"
-        />
+    <div className="flex flex-col h-full bg-nexus-gray-900">
+      <header className="flex items-center p-4 border-b border-nexus-gray-700">
+        <img src={character.avatarUrl || `https://picsum.photos/seed/${character.id}/40/40`} alt={character.name} className="w-10 h-10 rounded-full mr-4"/>
         <div>
           <h2 className="text-xl font-bold text-white">{character.name}</h2>
           <p className="text-sm text-nexus-gray-400">{character.description}</p>
         </div>
       </header>
-      
-      <div className="flex-1 overflow-y-auto p-6">
+
+      <div className="flex-1 p-4 overflow-y-auto space-y-4">
         {session.messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-nexus-gray-500">
-                <ChatBubbleIcon className="w-16 h-16 mb-4"/>
-                <p>No messages yet.</p>
-                <p>Start the conversation with {character.name}.</p>
-            </div>
+          <div className="flex flex-col items-center justify-center h-full text-nexus-gray-500">
+            <ChatBubbleIcon className="w-16 h-16 mb-4" />
+            <p>No messages yet. Start the conversation!</p>
+          </div>
         ) : (
-            <div className="space-y-6">
-                {session.messages.map((message, index) => (
-                    <div key={index} className={`flex items-start gap-4 ${message.role === 'user' ? 'justify-end' : ''}`}>
-                         {message.role === 'model' && <img src={character.avatarUrl || `https://picsum.photos/seed/${character.id}/40/40`} alt="avatar" className="w-8 h-8 rounded-full" />}
-                        <div className={`max-w-xl p-4 rounded-xl ${message.role === 'user' ? 'bg-nexus-blue-600 text-white' : 'bg-nexus-gray-800 text-nexus-gray-200'}`}>
-                           <p className="whitespace-pre-wrap">{message.content}{isStreaming && index === session.messages.length - 1 ? '...' : ''}</p>
-                        </div>
-                    </div>
-                ))}
+          session.messages.map((msg, index) => (
+            <div key={index} className={`flex items-start gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              {msg.role === 'model' && (
+                <img src={character.avatarUrl || `https://picsum.photos/seed/${character.id}/40/40`} alt="model avatar" className="w-8 h-8 rounded-full flex-shrink-0" />
+              )}
+              <div className={`max-w-xl p-3 rounded-lg ${
+                  msg.role === 'user'
+                    ? 'bg-nexus-blue-600 text-white'
+                    : 'bg-nexus-gray-800 text-nexus-gray-200'
+                }`}>
+                {renderMessageContent(msg)}
+              </div>
             </div>
+          ))
         )}
         <div ref={messagesEndRef} />
       </div>
 
-      <footer className="p-4 bg-nexus-gray-900 border-t border-nexus-gray-700">
-        <div className="relative">
+      <div className="p-4 border-t border-nexus-gray-700">
+        <div className="flex items-center bg-nexus-gray-800 rounded-lg p-2">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
             placeholder={`Message ${character.name}...`}
+            className="flex-1 bg-transparent resize-none focus:outline-none px-2 text-white"
             rows={1}
-            className="w-full bg-nexus-gray-800 text-nexus-gray-200 border-nexus-gray-700 rounded-lg p-3 pr-20 resize-none focus:ring-2 focus:ring-nexus-blue-500 focus:outline-none"
             disabled={isStreaming}
           />
-          <button
-            onClick={handleSendMessage}
-            disabled={!input.trim() || isStreaming}
-            className="absolute right-3 top-1/2 -translate-y-1/2 px-4 py-2 text-sm font-semibold text-white bg-nexus-blue-600 rounded-md hover:bg-nexus-blue-500 disabled:bg-nexus-gray-600 disabled:cursor-not-allowed"
-          >
-            {isStreaming ? '...' : 'Send'}
+          <button onClick={handleImageButtonClick} title="Generate Image (single-click for prompt, double-click for context)" className="p-2 text-nexus-gray-400 hover:text-white disabled:opacity-50" disabled={isStreaming}>
+            <ImageIcon className="w-6 h-6" />
+          </button>
+          <button onClick={handleSendMessage} disabled={!input.trim() || isStreaming} className="p-2 text-nexus-gray-400 hover:text-white disabled:opacity-50">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" /></svg>
           </button>
         </div>
-      </footer>
+      </div>
     </div>
   );
 };

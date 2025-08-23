@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Plugin } from '../types';
 import { PlusIcon } from './icons/PlusIcon';
 import { TrashIcon } from './icons/TrashIcon';
 import { EditIcon } from './icons/EditIcon';
 import { PowerIcon } from './icons/PowerIcon';
+import { UploadIcon } from './icons/UploadIcon';
+import { DownloadIcon } from './icons/DownloadIcon';
 
 interface PluginManagerProps {
   plugins: Plugin[];
@@ -33,6 +35,7 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
   const [editingPlugin, setEditingPlugin] = useState<Plugin | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [formState, setFormState] = useState<Omit<Plugin, 'id' | 'enabled'>>({ name: '', description: '', code: '' });
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (editingPlugin) {
@@ -59,10 +62,8 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
     
     let updatedPlugins;
     if (editingPlugin) {
-      // Editing existing plugin
       updatedPlugins = plugins.map(p => p.id === editingPlugin.id ? { ...editingPlugin, ...formState } : p);
     } else {
-      // Creating new plugin
       const newPlugin: Plugin = { ...formState, id: crypto.randomUUID(), enabled: false };
       updatedPlugins = [...plugins, newPlugin];
     }
@@ -88,8 +89,80 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
     setIsCreating(false);
   };
   
+  const triggerDownload = (filename: string, content: string) => {
+    const blob = new Blob([content], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportAll = () => {
+    const jsonString = JSON.stringify(plugins, null, 2);
+    triggerDownload('ai-nexus-plugins.json', jsonString);
+  };
+
+  const handleExportPlugin = (plugin: Plugin) => {
+    const jsonString = JSON.stringify(plugin, null, 2);
+    const filename = `${plugin.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.json`;
+    triggerDownload(filename, jsonString);
+  };
+
+  const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result as string;
+        const imported = JSON.parse(text);
+        
+        let pluginsToImport: Plugin[] = [];
+
+        const isValidPlugin = (p: any): p is Plugin => {
+          return p && typeof p.name === 'string' && typeof p.code === 'string';
+        };
+
+        if (Array.isArray(imported)) {
+          pluginsToImport = imported.filter(isValidPlugin);
+        } else if (isValidPlugin(imported)) {
+          pluginsToImport = [imported];
+        } else {
+            throw new Error("Invalid plugin file format. Expected a plugin object or an array of plugins.");
+        }
+
+        if (pluginsToImport.length === 0) {
+            alert("No valid plugins found in the file.");
+            return;
+        }
+
+        const newPlugins = pluginsToImport.map(p => ({
+            ...p,
+            id: crypto.randomUUID(), // Assign new ID to avoid conflicts
+            enabled: false, // Import as disabled for security
+        }));
+
+        const finalPlugins = [...plugins, ...newPlugins];
+        onPluginsUpdate(finalPlugins);
+        alert(`${newPlugins.length} plugin(s) imported successfully. They are disabled by default.`);
+
+      } catch (error) {
+        console.error("Plugin import failed:", error);
+        alert(`Failed to import plugins. Error: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
   if (editingPlugin || isCreating) {
-    return (
+     return (
       <div className="flex-1 flex flex-col p-8 bg-nexus-gray-900 overflow-y-auto">
         <h2 className="text-3xl font-bold text-white mb-6">{editingPlugin ? 'Edit Plugin' : 'Create New Plugin'}</h2>
         <div className="space-y-6">
@@ -130,10 +203,21 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
     <div className="flex-1 flex flex-col p-8 bg-nexus-gray-900">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-3xl font-bold text-white">Plugin Manager</h2>
-        <button onClick={() => setIsCreating(true)} className="flex items-center space-x-2 py-2 px-4 rounded-md text-white bg-nexus-blue-600 hover:bg-nexus-blue-500">
-          <PlusIcon className="w-5 h-5" />
-          <span>New Plugin</span>
-        </button>
+        <div className="flex items-center space-x-2">
+            <input type="file" ref={fileInputRef} onChange={handleImport} accept=".json" className="hidden" />
+            <button onClick={() => fileInputRef.current?.click()} className="flex items-center space-x-2 py-2 px-3 rounded-md text-white bg-nexus-gray-700 hover:bg-nexus-gray-600">
+                <UploadIcon className="w-5 h-5"/>
+                <span>Import</span>
+            </button>
+            <button onClick={handleExportAll} className="flex items-center space-x-2 py-2 px-3 rounded-md text-white bg-nexus-gray-700 hover:bg-nexus-gray-600">
+                <DownloadIcon className="w-5 h-5"/>
+                <span>Export All</span>
+            </button>
+            <button onClick={() => setIsCreating(true)} className="flex items-center space-x-2 py-2 px-4 rounded-md text-white bg-nexus-blue-600 hover:bg-nexus-blue-500">
+                <PlusIcon className="w-5 h-5" />
+                <span>New Plugin</span>
+            </button>
+        </div>
       </div>
       <div className="space-y-4">
         {plugins.length === 0 ? (
@@ -146,6 +230,7 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
                 <p className="text-sm text-nexus-gray-400 truncate">{plugin.description}</p>
               </div>
               <div className="flex items-center space-x-3 ml-4">
+                <button onClick={() => handleExportPlugin(plugin)} title="Export Plugin" className="text-nexus-gray-400 hover:text-white"><DownloadIcon className="w-5 h-5"/></button>
                 <button onClick={() => handleToggle(plugin.id)} title={plugin.enabled ? 'Disable' : 'Enable'}>
                   <PowerIcon className={`w-6 h-6 ${plugin.enabled ? 'text-nexus-green-500' : 'text-nexus-gray-500 hover:text-white'}`}/>
                 </button>
