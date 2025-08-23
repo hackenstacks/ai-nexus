@@ -1,0 +1,53 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Nexus</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              'nexus-dark': '#111827',
+              'nexus-gray': {
+                '800': '#1F2937',
+                '700': '#374151',
+                '600': '#4B5563',
+                '500': '#6B7280',
+                '400': '#9CA3AF',
+                '300': '#D1D5DB',
+                '200': '#E5E7EB'
+              },
+              'nexus-blue': {
+                '500': '#3B82F6',
+                '600': '#2563EB'
+              },
+               'nexus-green': {
+                '500': '#22C55E',
+                '600': '#16A34A'
+              }
+            }
+          }
+        }
+      }
+    </script>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.1.1/",
+    "react": "https://esm.sh/react@^19.1.1",
+    "react-dom/": "https://esm.sh/react-dom@^19.1.1/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.15.0"
+  }
+}
+</script>
+</head>
+  <body class="bg-nexus-dark text-nexus-gray-200">
+    <div id="root"></div>
+  </body>
+</html>
