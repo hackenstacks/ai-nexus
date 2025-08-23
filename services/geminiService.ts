@@ -20,6 +20,54 @@ const getAiClient = (apiKey?: string): GoogleGenAI => {
 
 // --- OpenAI Compatible Service ---
 
+/**
+ * A wrapper for fetch that includes a retry mechanism with exponential backoff.
+ * This is useful for handling rate limiting (429) errors and transient network issues.
+ */
+const fetchWithRetry = async (
+    url: RequestInfo, 
+    options: RequestInit, 
+    maxRetries = 3, 
+    initialDelay = 2000
+): Promise<Response> => {
+    let attempt = 0;
+    while (attempt < maxRetries) {
+        try {
+            const response = await fetch(url, options);
+
+            // If we get a rate limit error, wait and retry
+            if (response.status === 429) {
+                if (attempt + 1 >= maxRetries) {
+                    // Don't retry on the last attempt, just return the response to be handled by the caller.
+                    return response;
+                }
+                const delay = initialDelay * Math.pow(2, attempt) + Math.random() * 1000;
+                logger.warn(`API rate limit exceeded. Retrying in ${Math.round(delay / 1000)}s... (Attempt ${attempt + 1}/${maxRetries})`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                attempt++;
+                continue;
+            }
+
+            // For any other response (ok or not), return it immediately. The caller will handle it.
+            return response;
+
+        } catch (error) {
+            // This catches network errors. We should retry on these.
+             if (attempt + 1 >= maxRetries) {
+                logger.error(`API request failed after ${maxRetries} attempts due to network errors.`, error);
+                throw error; // Rethrow the last error if all retries fail
+            }
+            const delay = initialDelay * Math.pow(2, attempt) + Math.random() * 1000;
+            logger.warn(`Fetch failed due to a network error. Retrying in ${Math.round(delay / 1000)}s...`, error);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            attempt++;
+        }
+    }
+    // This should not be reached if the loop is correct, but for typescript's sake.
+    throw new Error(`API request failed to complete after ${maxRetries} attempts.`);
+};
+
+
 const streamOpenAIChatResponse = async (
     config: ApiConfig,
     systemInstruction: string,
@@ -32,7 +80,7 @@ const streamOpenAIChatResponse = async (
             ...history.map(msg => ({ role: msg.role === 'model' ? 'assistant' : 'user', content: msg.content }))
         ];
 
-        const response = await fetch(config.apiEndpoint!, {
+        const response = await fetchWithRetry(config.apiEndpoint!, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -89,7 +137,7 @@ const streamOpenAIChatResponse = async (
 };
 
 const generateOpenAIImage = async (prompt: string, config: { [key: string]: any }): Promise<string> => {
-    const response = await fetch(config.apiEndpoint, {
+    const response = await fetchWithRetry(config.apiEndpoint, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
