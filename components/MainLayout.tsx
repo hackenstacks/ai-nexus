@@ -204,16 +204,22 @@ export const MainLayout: React.FC = () => {
                 const text = e.target?.result;
                 if (typeof text !== 'string') throw new Error('Invalid file content');
                 
-                const data = JSON.parse(text) as AppData;
+                const data = JSON.parse(text);
 
                 if (typeof data !== 'object' || data === null || Array.isArray(data)) {
                     throw new Error("Invalid backup file format. Expected a JSON object.");
                 }
                 
+                const importedPlugins = Array.isArray(data.plugins) ? data.plugins : [];
+                const hasDefaultPlugin = importedPlugins.some(p => p.id === defaultImagePlugin.id);
+                if (!hasDefaultPlugin) {
+                    importedPlugins.push(defaultImagePlugin);
+                }
+
                 const importedData: AppData = {
                     characters: Array.isArray(data.characters) ? data.characters : [],
                     chatSessions: Array.isArray(data.chatSessions) ? data.chatSessions : [],
-                    plugins: Array.isArray(data.plugins) ? data.plugins : [],
+                    plugins: importedPlugins,
                 };
 
                 if (window.confirm('This will overwrite all current data. Are you sure you want to proceed?')) {

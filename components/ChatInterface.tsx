@@ -66,23 +66,23 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ character, chatSes
 
   }, [onTriggerHook, session, onSessionUpdate]);
 
-  const handleImageClick = () => {
+  const handleImageClick = useCallback(() => {
     const prompt = window.prompt("Enter a prompt for the image:");
     if (prompt) {
       handleImageGeneration('prompt', prompt);
     }
-  };
+  }, [handleImageGeneration]);
 
-  const handleImageDoubleClick = () => {
+  const handleImageDoubleClick = useCallback(() => {
     const lastMessages = session.messages.slice(-4).map(m => `${m.role}: ${m.content}`).join('\n');
     if (lastMessages.trim().length === 0) {
         alert("Not enough conversation context to generate an image. Please type a message first.");
         return;
     }
     handleImageGeneration('summary', lastMessages);
-  };
+  }, [session.messages, handleImageGeneration]);
   
-  const handleImageButtonClick = () => {
+  const handleImageButtonClick = useCallback(() => {
     if (clickTimeout.current) {
       // Double click
       clearTimeout(clickTimeout.current);
@@ -95,7 +95,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ character, chatSes
         handleImageClick();
       }, 300); // 300ms delay to wait for a potential double click
     }
-  };
+  }, [handleImageClick, handleImageDoubleClick]);
 
   const handleSendMessage = useCallback(async () => {
     const trimmedInput = input.trim();
