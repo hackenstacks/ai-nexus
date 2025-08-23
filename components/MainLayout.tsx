@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Character, ChatSession, AppData, Plugin, GeminiApiRequest } from '../types';
 import { loadData, saveData } from '../services/secureStorage';
@@ -45,7 +44,10 @@ nexus.hooks.register('generateImage', async (payload) => {
   }
 });
 nexus.log('Image Generation plugin loaded.');
-`
+`,
+    settings: {
+        service: 'default'
+    }
 };
 
 type View = 'chat' | 'form' | 'plugins';
@@ -69,15 +71,18 @@ export const MainLayout: React.FC = () => {
     
     // Secure handler for API requests coming from plugin sandboxes
     const handlePluginApiRequest = useCallback(async (request: GeminiApiRequest) => {
+        const imagePluginSettings = plugins.find(p => p.id === 'default-image-generator')?.settings;
+
         switch (request.type) {
             case 'generateContent':
+                // Plugins calling generateContent will use the default app key for now.
                 return await geminiService.generateContent(request.prompt);
             case 'generateImage':
-                return await geminiService.generateImageFromPrompt(request.prompt);
+                return await geminiService.generateImageFromPrompt(request.prompt, imagePluginSettings);
             default:
                 throw new Error('Unknown API request type from plugin.');
         }
-    }, []);
+    }, [plugins]);
 
     useEffect(() => {
         const loadInitialData = async () => {
@@ -85,10 +90,18 @@ export const MainLayout: React.FC = () => {
             const data = await loadData();
             
             // Inject default plugin if it doesn't exist
-            const hasDefaultPlugin = data.plugins.some(p => p.id === defaultImagePlugin.id);
+            let hasDefaultPlugin = data.plugins.some(p => p.id === defaultImagePlugin.id);
             if (!hasDefaultPlugin) {
                 data.plugins.push(defaultImagePlugin);
                 logger.log("Default image generation plugin injected.");
+            } else {
+                // Ensure existing default plugin has a settings object
+                data.plugins = data.plugins.map(p => {
+                    if (p.id === defaultImagePlugin.id && !p.settings) {
+                        return { ...p, settings: { service: 'default' } };
+                    }
+                    return p;
+                });
             }
 
             setCharacters(data.characters);

@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { Plugin } from '../types';
+import { Plugin, ApiConfig } from '../types';
 import { logger } from '../services/loggingService';
 import { PlusIcon } from './icons/PlusIcon';
 import { TrashIcon } from './icons/TrashIcon';
@@ -36,7 +35,7 @@ nexus.log('UPPERCASE plugin loaded and ready.');
 export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPluginsUpdate }) => {
   const [editingPlugin, setEditingPlugin] = useState<Plugin | null>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const [formState, setFormState] = useState<Omit<Plugin, 'id' | 'enabled'>>({ name: '', description: '', code: '' });
+  const [formState, setFormState] = useState<Omit<Plugin, 'id' | 'enabled'>>({ name: '', description: '', code: '', settings: {} });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -45,13 +44,15 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
         name: editingPlugin.name,
         description: editingPlugin.description,
         code: editingPlugin.code,
+        settings: editingPlugin.settings || {},
       });
       setIsCreating(false);
     } else if (isCreating) {
       setFormState({
         name: '',
         description: '',
-        code: examplePluginCode
+        code: examplePluginCode,
+        settings: {}
       });
     }
   }, [editingPlugin, isCreating]);
@@ -186,11 +187,23 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
     };
     reader.readAsText(file);
   };
+  
+  const handleSettingsChange = (key: string, value: any) => {
+      setFormState(prev => ({
+          ...prev,
+          settings: {
+              ...prev.settings,
+              [key]: value
+          }
+      }));
+  };
+  
+  const isDefaultImagePlugin = editingPlugin?.id === 'default-image-generator';
 
   if (editingPlugin || isCreating) {
      return (
       <div className="flex-1 flex flex-col p-8 bg-nexus-gray-900 overflow-y-auto">
-        <h2 className="text-3xl font-bold text-white mb-6">{editingPlugin ? 'Edit Plugin' : 'Create New Plugin'}</h2>
+        <h2 className="text-3xl font-bold text-white mb-6">{isDefaultImagePlugin ? 'Configure Plugin' : (editingPlugin ? 'Edit Plugin' : 'Create New Plugin')}</h2>
         <div className="space-y-6">
           <input
             type="text"
@@ -206,14 +219,83 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
             onChange={(e) => setFormState(s => ({...s, description: e.target.value}))}
             className="w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
           />
+          {isDefaultImagePlugin && (
+            <div className="p-4 rounded-md border border-nexus-gray-700 bg-nexus-gray-800/50 space-y-4">
+              <h3 className="text-lg font-medium text-white mb-3">Image Generation API Configuration</h3>
+              <div>
+                <label htmlFor="api-service" className="block text-sm font-medium text-nexus-gray-300">API Service</label>
+                <select 
+                    id="api-service"
+                    value={formState.settings?.service || 'default'}
+                    onChange={(e) => handleSettingsChange('service', e.target.value as ApiConfig['service'])}
+                    className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                >
+                    <option value="default">Default (Gemini)</option>
+                    <option value="gemini">Google Gemini (Custom Key)</option>
+                    <option value="openai">OpenAI-Compatible (e.g., DALL-E)</option>
+                </select>
+              </div>
+              {formState.settings?.service === 'gemini' && (
+                  <div>
+                    <label htmlFor="api-key" className="block text-sm font-medium text-nexus-gray-300">Gemini API Key</label>
+                    <input
+                      id="api-key"
+                      type="password"
+                      value={formState.settings?.apiKey || ''}
+                      onChange={(e) => handleSettingsChange('apiKey', e.target.value)}
+                      className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                      placeholder="Leave blank to use default key"
+                    />
+                  </div>
+              )}
+               {formState.settings?.service === 'openai' && (
+                    <>
+                        <div>
+                            <label htmlFor="api-endpoint" className="block text-sm font-medium text-nexus-gray-300">API Endpoint</label>
+                            <input
+                                id="api-endpoint"
+                                type="text"
+                                value={formState.settings?.apiEndpoint || ''}
+                                onChange={(e) => handleSettingsChange('apiEndpoint', e.target.value)}
+                                className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                                placeholder="e.g., https://api.openai.com/v1/images/generations"
+                            />
+                        </div>
+                         <div>
+                            <label htmlFor="api-key" className="block text-sm font-medium text-nexus-gray-300">API Key</label>
+                            <input
+                                id="api-key"
+                                type="password"
+                                value={formState.settings?.apiKey || ''}
+                                onChange={(e) => handleSettingsChange('apiKey', e.target.value)}
+                                className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                                placeholder="API Key"
+                            />
+                        </div>
+                        <div>
+                            <label htmlFor="api-model" className="block text-sm font-medium text-nexus-gray-300">Model Name</label>
+                            <input
+                                id="api-model"
+                                type="text"
+                                value={formState.settings?.model || ''}
+                                onChange={(e) => handleSettingsChange('model', e.target.value)}
+                                className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                                placeholder="e.g., dall-e-3"
+                            />
+                        </div>
+                    </>
+                )}
+            </div>
+          )}
           <div className="flex flex-col h-96">
             <label className="block text-sm font-medium text-nexus-gray-300 mb-1">Plugin Code (JavaScript)</label>
             <textarea
               placeholder="Enter your plugin code here..."
               value={formState.code}
               onChange={(e) => setFormState(s => ({...s, code: e.target.value}))}
-              className="flex-1 w-full bg-nexus-dark border border-nexus-gray-700 rounded-md py-2 px-3 text-white font-mono text-sm focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500 resize-none"
+              className={`flex-1 w-full bg-nexus-dark border border-nexus-gray-700 rounded-md py-2 px-3 text-white font-mono text-sm focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500 resize-none ${isDefaultImagePlugin ? 'opacity-70' : ''}`}
               spellCheck="false"
+              readOnly={isDefaultImagePlugin}
             />
           </div>
           <div className="flex justify-end space-x-4">
@@ -260,8 +342,10 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
                 <button onClick={() => handleToggle(plugin.id)} title={plugin.enabled ? 'Disable' : 'Enable'}>
                   <PowerIcon className={`w-6 h-6 ${plugin.enabled ? 'text-nexus-green-500' : 'text-nexus-gray-500 hover:text-white'}`}/>
                 </button>
-                <button onClick={() => setEditingPlugin(plugin)} title="Edit Plugin" className="text-nexus-gray-400 hover:text-white"><EditIcon className="w-5 h-5" /></button>
-                <button onClick={() => handleDelete(plugin.id)} title="Delete Plugin" className="text-nexus-gray-400 hover:text-red-400"><TrashIcon className="w-5 h-5" /></button>
+                <button onClick={() => setEditingPlugin(plugin)} title={plugin.id === 'default-image-generator' ? 'Configure Plugin' : 'Edit Plugin'} className="text-nexus-gray-400 hover:text-white"><EditIcon className="w-5 h-5" /></button>
+                {plugin.id !== 'default-image-generator' && (
+                    <button onClick={() => handleDelete(plugin.id)} title="Delete Plugin" className="text-nexus-gray-400 hover:text-red-400"><TrashIcon className="w-5 h-5" /></button>
+                )}
               </div>
             </div>
           ))

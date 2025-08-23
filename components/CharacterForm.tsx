@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect } from 'react';
-import { Character } from '../types';
+import { Character, ApiConfig } from '../types';
 
 interface CharacterFormProps {
   character: Character | null;
@@ -8,12 +7,20 @@ interface CharacterFormProps {
   onCancel: () => void;
 }
 
+const defaultApiConfig: ApiConfig = {
+    service: 'default',
+    apiKey: '',
+    apiEndpoint: '',
+    model: ''
+};
+
 export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave, onCancel }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [personality, setPersonality] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [tags, setTags] = useState('');
+  const [apiConfig, setApiConfig] = useState<ApiConfig>(defaultApiConfig);
 
   useEffect(() => {
     if (character) {
@@ -22,14 +29,20 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
       setPersonality(character.personality);
       setAvatarUrl(character.avatarUrl);
       setTags(character.tags.join(', '));
+      setApiConfig(character.apiConfig || defaultApiConfig);
     } else {
         setName('');
         setDescription('');
         setPersonality('');
         setAvatarUrl('');
         setTags('');
+        setApiConfig(defaultApiConfig);
     }
   }, [character]);
+
+  const handleApiConfigChange = <K extends keyof ApiConfig>(key: K, value: ApiConfig[K]) => {
+      setApiConfig(prev => ({ ...prev, [key]: value }));
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,7 +55,13 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
       personality,
       avatarUrl,
       tags: tags.split(',').map(tag => tag.trim()).filter(Boolean),
-      createdAt: character?.createdAt || new Date().toISOString()
+      createdAt: character?.createdAt || new Date().toISOString(),
+      apiConfig: {
+        ...apiConfig,
+        apiKey: apiConfig.apiKey?.trim(),
+        apiEndpoint: apiConfig.apiEndpoint?.trim(),
+        model: apiConfig.model?.trim(),
+      },
     };
     onSave(newCharacter);
   };
@@ -106,6 +125,74 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
                 <span>Generate</span>
              </button>
           </div>
+        </div>
+        <div className="p-4 rounded-md border border-nexus-gray-700 bg-nexus-gray-800/50">
+            <h3 className="text-lg font-medium text-white mb-3">API Configuration</h3>
+            <div className="space-y-4">
+                <div>
+                    <label htmlFor="api-service" className="block text-sm font-medium text-nexus-gray-300">API Service</label>
+                    <select 
+                        id="api-service"
+                        value={apiConfig.service}
+                        onChange={(e) => handleApiConfigChange('service', e.target.value as ApiConfig['service'])}
+                        className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                    >
+                        <option value="default">Default (Gemini)</option>
+                        <option value="gemini">Google Gemini (Custom Key)</option>
+                        <option value="openai">OpenAI-Compatible (e.g., Ollama)</option>
+                    </select>
+                </div>
+                {apiConfig.service === 'gemini' && (
+                     <div>
+                        <label htmlFor="api-key" className="block text-sm font-medium text-nexus-gray-300">Gemini API Key</label>
+                        <input
+                            id="api-key"
+                            type="password"
+                            value={apiConfig.apiKey}
+                            onChange={(e) => handleApiConfigChange('apiKey', e.target.value)}
+                            className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                            placeholder="Enter your Gemini API key"
+                        />
+                    </div>
+                )}
+                 {apiConfig.service === 'openai' && (
+                    <>
+                        <div>
+                            <label htmlFor="api-endpoint" className="block text-sm font-medium text-nexus-gray-300">API Endpoint</label>
+                            <input
+                                id="api-endpoint"
+                                type="text"
+                                value={apiConfig.apiEndpoint}
+                                onChange={(e) => handleApiConfigChange('apiEndpoint', e.target.value)}
+                                className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                                placeholder="e.g., http://localhost:11434/v1/chat/completions"
+                            />
+                        </div>
+                         <div>
+                            <label htmlFor="api-key" className="block text-sm font-medium text-nexus-gray-300">API Key</label>
+                            <input
+                                id="api-key"
+                                type="password"
+                                value={apiConfig.apiKey}
+                                onChange={(e) => handleApiConfigChange('apiKey', e.target.value)}
+                                className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                                placeholder="API Key (optional for some services)"
+                            />
+                        </div>
+                        <div>
+                            <label htmlFor="api-model" className="block text-sm font-medium text-nexus-gray-300">Model Name</label>
+                            <input
+                                id="api-model"
+                                type="text"
+                                value={apiConfig.model}
+                                onChange={(e) => handleApiConfigChange('model', e.target.value)}
+                                className="mt-1 block w-full bg-nexus-gray-800 border border-nexus-gray-700 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                                placeholder="e.g., llama3"
+                            />
+                        </div>
+                    </>
+                )}
+            </div>
         </div>
         <div>
           <label htmlFor="tags" className="block text-sm font-medium text-nexus-gray-300">Tags</label>

@@ -16,6 +16,13 @@ export interface ChatSession {
   messages: Message[];
 }
 
+export interface ApiConfig {
+  service: 'default' | 'gemini' | 'openai';
+  apiKey?: string;
+  apiEndpoint?: string; // Base URL for OpenAI-compatible
+  model?: string;
+}
+
 export interface Character {
   id: string;
   name: string;
@@ -24,6 +31,7 @@ export interface Character {
   avatarUrl: string;
   tags: string[];
   createdAt: string;
+  apiConfig?: ApiConfig;
 }
 
 export interface Plugin {
@@ -32,6 +40,9 @@ export interface Plugin {
   description: string;
   code: string;
   enabled: boolean;
+  settings?: {
+    [key: string]: any;
+  };
 }
 
 export interface AppData {
