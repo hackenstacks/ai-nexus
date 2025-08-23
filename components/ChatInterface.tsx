@@ -1,6 +1,8 @@
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Character, ChatSession, Message } from '../types';
 import { streamChatResponse } from '../services/geminiService';
+import { logger } from '../services/loggingService';
 import { ChatBubbleIcon } from './icons/ChatBubbleIcon';
 import { ImageIcon } from './icons/ImageIcon';
 
@@ -41,9 +43,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ character, chatSes
     setSession(newSessionWithLoading);
     
     try {
+        logger.log(`Triggering image generation hook`, { type, value });
         const result: { url?: string; error?: string } = await onTriggerHook('generateImage', { type, value });
         
         if (result.url) {
+            logger.log("Image generation successful.");
             const finalSession: ChatSession = {
                 ...newSessionWithLoading,
                 messages: newSessionWithLoading.messages.map(m => m.timestamp === imageMessage.timestamp ? { ...m, attachment: { ...m.attachment!, status: 'done', url: result.url }} : m)
@@ -55,7 +59,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ character, chatSes
         }
 
     } catch (error) {
-        console.error("Image generation failed:", error);
+        logger.error("Image generation failed:", error);
         const finalSession: ChatSession = {
             ...newSessionWithLoading,
             messages: newSessionWithLoading.messages.map(m => m.timestamp === imageMessage.timestamp ? { ...m, attachment: { ...m.attachment!, status: 'error' }} : m)
@@ -146,7 +150,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ character, chatSes
                     }
                 );
             } catch (error) {
-                 console.error("Streaming failed:", error);
+                 logger.error("Streaming failed:", error);
                  setSession(currentSession => ({
                     ...currentSession,
                     messages: currentSession.messages.map((msg, index) =>
@@ -185,7 +189,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ character, chatSes
             return <img src={url} alt={prompt} className="rounded-lg max-w-sm" />;
         }
         if (status === 'error') {
-            return <p className="text-red-400">Failed to generate image.</p>;
+            return <p className="text-red-400">Failed to generate image. Check logs for details.</p>;
         }
     }
     // Render text with line breaks

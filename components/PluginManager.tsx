@@ -1,5 +1,7 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Plugin } from '../types';
+import { logger } from '../services/loggingService';
 import { PlusIcon } from './icons/PlusIcon';
 import { TrashIcon } from './icons/TrashIcon';
 import { EditIcon } from './icons/EditIcon';
@@ -63,9 +65,11 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
     let updatedPlugins;
     if (editingPlugin) {
       updatedPlugins = plugins.map(p => p.id === editingPlugin.id ? { ...editingPlugin, ...formState } : p);
+      logger.log(`Plugin updated: ${formState.name}`);
     } else {
       const newPlugin: Plugin = { ...formState, id: crypto.randomUUID(), enabled: false };
       updatedPlugins = [...plugins, newPlugin];
+      logger.log(`Plugin created: ${formState.name}`);
     }
     onPluginsUpdate(updatedPlugins);
     setEditingPlugin(null);
@@ -74,14 +78,20 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
   
   const handleDelete = (pluginId: string) => {
     if (window.confirm('Are you sure you want to delete this plugin?')) {
+        const pluginName = plugins.find(p => p.id === pluginId)?.name || 'Unknown';
         const updatedPlugins = plugins.filter(p => p.id !== pluginId);
         onPluginsUpdate(updatedPlugins);
+        logger.log(`Plugin deleted: ${pluginName}`);
     }
   };
 
   const handleToggle = (pluginId: string) => {
     const updatedPlugins = plugins.map(p => p.id === pluginId ? { ...p, enabled: !p.enabled } : p);
     onPluginsUpdate(updatedPlugins);
+    const plugin = updatedPlugins.find(p => p.id === pluginId);
+    if (plugin) {
+        logger.log(`Plugin ${plugin.enabled ? 'enabled' : 'disabled'}: ${plugin.name}`);
+    }
   };
   
   const handleCancel = () => {
@@ -102,20 +112,34 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
   };
 
   const handleExportAll = () => {
-    const jsonString = JSON.stringify(plugins, null, 2);
-    triggerDownload('ai-nexus-plugins.json', jsonString);
+    try {
+      const jsonString = JSON.stringify(plugins, null, 2);
+      const filename = 'ai-nexus-plugins.json';
+      triggerDownload(filename, jsonString);
+      logger.log(`Exported all ${plugins.length} plugins.`, { filename });
+    } catch (error) {
+        logger.error("Failed to export all plugins.", error);
+        alert("Failed to export plugins. Check logs for details.");
+    }
   };
 
   const handleExportPlugin = (plugin: Plugin) => {
-    const jsonString = JSON.stringify(plugin, null, 2);
-    const filename = `${plugin.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.json`;
-    triggerDownload(filename, jsonString);
+    try {
+        const jsonString = JSON.stringify(plugin, null, 2);
+        const filename = `${plugin.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.json`;
+        triggerDownload(filename, jsonString);
+        logger.log(`Exported plugin: ${plugin.name}`, { filename });
+    } catch (error) {
+        logger.error(`Failed to export plugin: ${plugin.name}`, error);
+        alert("Failed to export plugin. Check logs for details.");
+    }
   };
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    logger.log(`Starting plugin import from file: ${file.name}`);
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
@@ -138,6 +162,7 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
 
         if (pluginsToImport.length === 0) {
             alert("No valid plugins found in the file.");
+            logger.warn("Plugin import completed with no valid plugins found.", { filename: file.name });
             return;
         }
 
@@ -149,11 +174,12 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
 
         const finalPlugins = [...plugins, ...newPlugins];
         onPluginsUpdate(finalPlugins);
+        logger.log(`${newPlugins.length} plugin(s) imported successfully. They are disabled by default.`);
         alert(`${newPlugins.length} plugin(s) imported successfully. They are disabled by default.`);
 
       } catch (error) {
-        console.error("Plugin import failed:", error);
-        alert(`Failed to import plugins. Error: ${error instanceof Error ? error.message : String(error)}`);
+        logger.error("Plugin import failed:", error);
+        alert(`Failed to import plugins. Check logs for details. Error: ${error instanceof Error ? error.message : String(error)}`);
       } finally {
         if (fileInputRef.current) fileInputRef.current.value = '';
       }

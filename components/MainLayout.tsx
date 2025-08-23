@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Character, ChatSession, AppData, Plugin, GeminiApiRequest } from '../types';
 import { loadData, saveData } from '../services/secureStorage';
@@ -5,11 +6,14 @@ import { CharacterList } from './CharacterList';
 import { CharacterForm } from './CharacterForm';
 import { ChatInterface } from './ChatInterface';
 import { PluginManager } from './PluginManager';
+import { LogViewer } from './LogViewer';
 import { PluginSandbox } from '../services/pluginSandbox';
 import * as geminiService from '../services/geminiService';
+import { logger } from '../services/loggingService';
 import { DownloadIcon } from './icons/DownloadIcon';
 import { UploadIcon } from './icons/UploadIcon';
 import { CodeIcon } from './icons/CodeIcon';
+import { TerminalIcon } from './icons/TerminalIcon';
 
 const defaultImagePlugin: Plugin = {
     id: 'default-image-generator',
@@ -54,6 +58,7 @@ export const MainLayout: React.FC = () => {
     const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
     const [editingCharacter, setEditingCharacter] = useState<Character | null>(null);
     const [view, setView] = useState<View>('chat');
+    const [isLogViewerVisible, setIsLogViewerVisible] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const sandboxes = useRef(new Map<string, PluginSandbox>()).current;
@@ -76,17 +81,20 @@ export const MainLayout: React.FC = () => {
 
     useEffect(() => {
         const loadInitialData = async () => {
+            logger.log("Loading initial application data...");
             const data = await loadData();
             
             // Inject default plugin if it doesn't exist
             const hasDefaultPlugin = data.plugins.some(p => p.id === defaultImagePlugin.id);
             if (!hasDefaultPlugin) {
                 data.plugins.push(defaultImagePlugin);
+                logger.log("Default image generation plugin injected.");
             }
 
             setCharacters(data.characters);
             setChatSessions(data.chatSessions);
             setPlugins(data.plugins);
+            logger.log("Application data loaded successfully.", { characters: data.characters.length, sessions: data.chatSessions.length, plugins: data.plugins.length });
         };
         loadInitialData();
 
@@ -101,16 +109,16 @@ export const MainLayout: React.FC = () => {
             const existingSandbox = sandboxes.get(plugin.id);
             if (plugin.enabled && !existingSandbox) {
                 try {
-                    console.log(`Initializing sandbox for plugin: ${plugin.name}`);
+                    logger.log(`Initializing sandbox for plugin: ${plugin.name}`);
                     const sandbox = new PluginSandbox(handlePluginApiRequest);
                     await sandbox.loadCode(plugin.code);
                     sandboxes.set(plugin.id, sandbox);
                 } catch (error) {
-                    console.error(`Failed to load plugin "${plugin.name}":`, error);
-                    alert(`Error loading plugin "${plugin.name}". Check console for details.`);
+                    logger.error(`Failed to load plugin "${plugin.name}":`, error);
+                    alert(`Error loading plugin "${plugin.name}". Check logs for details.`);
                 }
             } else if (!plugin.enabled && existingSandbox) {
-                console.log(`Terminating sandbox for disabled plugin: ${plugin.name}`);
+                logger.log(`Terminating sandbox for disabled plugin: ${plugin.name}`);
                 existingSandbox.terminate();
                 sandboxes.delete(plugin.id);
             }
@@ -118,6 +126,7 @@ export const MainLayout: React.FC = () => {
         // Prune sandboxes for deleted plugins
         sandboxes.forEach((_, id) => {
             if (!plugins.some(p => p.id === id)) {
+                logger.log(`Pruning sandbox for deleted plugin ID: ${id}`);
                 sandboxes.get(id)?.terminate();
                 sandboxes.delete(id);
             }
@@ -126,26 +135,25 @@ export const MainLayout: React.FC = () => {
     }, [plugins, sandboxes, handlePluginApiRequest]);
 
     const handleSaveCharacter = (character: Character) => {
-        const updatedCharacters = [...characters];
-        const existingIndex = updatedCharacters.findIndex(c => c.id === character.id);
-        if (existingIndex > -1) {
-            updatedCharacters[existingIndex] = character;
-        } else {
-            updatedCharacters.push(character);
-        }
+        const isNew = !characters.some(c => c.id === character.id);
+        const updatedCharacters = isNew ? [...characters, character] : characters.map(c => c.id === character.id ? character : c);
+
         setCharacters(updatedCharacters);
         persistData({ characters: updatedCharacters, chatSessions, plugins });
+        logger.log(`Character ${isNew ? 'created' : 'updated'}: ${character.name}`);
         setView('chat');
         setEditingCharacter(null);
     };
 
     const handleDeleteCharacter = (characterId: string) => {
         if (window.confirm('Are you sure you want to delete this character and all related conversations?')) {
+            const characterName = characters.find(c => c.id === characterId)?.name || 'Unknown';
             const updatedCharacters = characters.filter(c => c.id !== characterId);
             const updatedSessions = chatSessions.filter(s => s.characterId !== characterId);
             setCharacters(updatedCharacters);
             setChatSessions(updatedSessions);
             persistData({ characters: updatedCharacters, chatSessions: updatedSessions, plugins });
+            logger.log(`Deleted character and associated sessions: ${characterName}`);
             if (selectedCharacter?.id === characterId) {
                 setSelectedCharacter(null);
             }
@@ -181,23 +189,31 @@ export const MainLayout: React.FC = () => {
     };
 
     const handleExportData = async () => {
-        const data = await loadData();
-        const jsonString = JSON.stringify(data, null, 2);
-        const blob = new Blob([jsonString], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `ai-nexus-backup-${new Date().toISOString().split('T')[0]}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        try {
+            const data = await loadData();
+            const jsonString = JSON.stringify(data, null, 2);
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            const timestamp = new Date().toISOString().split('T')[0];
+            a.download = `ai-nexus-backup-${timestamp}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            logger.log("Data exported successfully.", { filename: a.download });
+        } catch (error) {
+            logger.error("Failed to export data.", error);
+            alert("Failed to export data. Check logs for details.");
+        }
     };
     
     const handleImportData = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (!file) return;
 
+        logger.log(`Starting data import from file: ${file.name}`);
         const reader = new FileReader();
         reader.onload = async (e) => {
             try {
@@ -224,12 +240,15 @@ export const MainLayout: React.FC = () => {
 
                 if (window.confirm('This will overwrite all current data. Are you sure you want to proceed?')) {
                     await persistData(importedData);
+                    logger.log("Data imported successfully! Reloading application...");
                     alert('Data imported successfully! The application will now reload to apply the changes.');
                     window.location.reload();
+                } else {
+                    logger.log("Data import cancelled by user.");
                 }
             } catch (error) {
-                console.error("Import failed:", error);
-                alert(`Failed to import data. Please check the file format. Error: ${error instanceof Error ? error.message : String(error)}`);
+                logger.error("Import failed:", error);
+                alert(`Failed to import data. Please check the file format and logs. Error: ${error instanceof Error ? error.message : String(error)}`);
             } finally {
                 if (fileInputRef.current) {
                     fileInputRef.current.value = '';
@@ -255,7 +274,7 @@ export const MainLayout: React.FC = () => {
                     // The result from one plugin is passed as data to the next.
                     processedData = await sandbox.executeHook(hookName, processedData);
                 } catch (error) {
-                    console.error(`Error in plugin '${plugin.name}' during hook '${hookName}':`, error);
+                    logger.error(`Error in plugin '${plugin.name}' during hook '${hookName}':`, error);
                 }
             }
         }
@@ -298,6 +317,7 @@ export const MainLayout: React.FC = () => {
 
     return (
         <div className="flex h-screen bg-nexus-dark text-nexus-gray-200 font-sans">
+            {isLogViewerVisible && <LogViewer onClose={() => setIsLogViewerVisible(false)} />}
             <aside className="w-80 bg-nexus-gray-800 flex flex-col p-4 border-r border-nexus-gray-700">
                 <div className="flex items-center mb-6">
                     <h1 className="text-2xl font-bold text-white">AI Nexus</h1>
@@ -310,19 +330,23 @@ export const MainLayout: React.FC = () => {
                     onAddNew={handleAddNewCharacter}
                     selectedCharacterId={selectedCharacter?.id}
                 />
-                <div className="mt-auto pt-4 border-t border-nexus-gray-700 flex space-x-2">
-                    <button onClick={handleExportData} title="Export Data" className="flex-1 flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
+                <div className="mt-auto pt-4 border-t border-nexus-gray-700 grid grid-cols-2 gap-2">
+                    <button onClick={handleExportData} title="Export Data" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
                         <DownloadIcon className="w-4 h-4" />
                         <span>Export</span>
                     </button>
                     <input type="file" ref={fileInputRef} onChange={handleImportData} accept=".json" className="hidden" />
-                    <button onClick={() => fileInputRef.current?.click()} title="Import Data" className="flex-1 flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
+                    <button onClick={() => fileInputRef.current?.click()} title="Import Data" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
                         <UploadIcon className="w-4 h-4" />
                         <span>Import</span>
                     </button>
-                    <button onClick={() => setView('plugins')} title="Manage Plugins" className="flex-1 flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
+                    <button onClick={() => setView('plugins')} title="Manage Plugins" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
                         <CodeIcon className="w-4 h-4" />
                         <span>Plugins</span>
+                    </button>
+                     <button onClick={() => setIsLogViewerVisible(true)} title="View Logs" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
+                        <TerminalIcon className="w-4 h-4" />
+                        <span>Logs</span>
                     </button>
                 </div>
             </aside>

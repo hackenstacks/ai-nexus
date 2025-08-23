@@ -1,12 +1,13 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { Character, Message } from "../types";
+import { logger } from "./loggingService";
 
 // Ensure API_KEY is set in the environment variables
 const API_KEY = process.env.API_KEY;
 if (!API_KEY) {
-  // In a real app, you might want to show an error message to the user.
-  // For this context, we will throw an error to make it clear during development.
-  console.error("API_KEY environment variable not set.");
+  const errorMsg = "API_KEY environment variable not set. The application will not be able to connect to the Gemini API.";
+  logger.error(errorMsg);
 }
 const ai = new GoogleGenAI({ apiKey: API_KEY! });
 
@@ -40,7 +41,7 @@ Engage in conversation based on this persona. Do not break character. Respond to
       onChunk(chunk.text);
     }
   } catch (error) {
-    console.error("Error generating content:", error);
+    logger.error("Error generating content stream:", error);
     onChunk("Sorry, I encountered an error. Please try again.");
   }
 };
@@ -57,7 +58,7 @@ export const generateContent = async (prompt: string): Promise<string> => {
     });
     return response.text;
   } catch (error) {
-    console.error("Error in generateContent:", error);
+    logger.error("Error in generateContent:", error);
     throw error;
   }
 };
@@ -84,7 +85,7 @@ export const generateImageFromPrompt = async (prompt: string): Promise<string> =
     }
     throw new Error("No image was generated.");
   } catch (error) {
-    console.error("Error in generateImageFromPrompt:", error);
+    logger.error("Error in generateImageFromPrompt:", error);
     throw error;
   }
 };

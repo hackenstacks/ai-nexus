@@ -1,4 +1,6 @@
+
 import { GeminiApiRequest, PluginApiResponse } from "../types";
+import { logger } from "./loggingService";
 
 // This string contains the code that will be executed inside the Web Worker.
 // It creates a sandboxed environment for the plugin code.
@@ -102,14 +104,17 @@ export class PluginSandbox {
       const { type, payload, ticket, result, error } = e.data;
 
       if (type === 'LOG') {
-        console.log('[Plugin Sandbox]', ...payload);
+        const message = payload.map((p: any) => typeof p === 'object' ? JSON.stringify(p) : p).join(' ');
+        logger.log(`[Plugin] ${message}`);
       } else if (type === 'API_REQUEST') {
         try {
           const apiResult = await this.apiRequestHandler(payload.apiRequest);
           const response: PluginApiResponse = { ticket: payload.ticket, result: apiResult };
           this.worker.postMessage({ type: 'API_RESPONSE', payload: response });
         } catch (apiError) {
-          const response: PluginApiResponse = { ticket: payload.ticket, error: apiError instanceof Error ? apiError.message : String(apiError) };
+          const errorMessage = apiError instanceof Error ? apiError.message : String(apiError);
+          logger.error(`Error handling API request from plugin`, apiError);
+          const response: PluginApiResponse = { ticket: payload.ticket, error: errorMessage };
           this.worker.postMessage({ type: 'API_RESPONSE', payload: response });
         }
       } else if (ticket !== undefined && this.pendingHooks.has(ticket)) {
@@ -117,7 +122,7 @@ export class PluginSandbox {
         if (type === 'HOOK_RESULT') {
           promise.resolve(result);
         } else if (type === 'HOOK_ERROR') {
-          console.error(`[Plugin Sandbox] Error executing hook:`, error);
+          logger.error(`[Plugin] Error executing hook:`, error);
           promise.reject(new Error(error));
         }
         this.pendingHooks.delete(ticket);
