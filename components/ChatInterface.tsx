@@ -1,26 +1,43 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Character, ChatSession, Message } from '../types';
+import { Character, ChatSession, Message, CryptoKeys } from '../types';
 import { streamChatResponse, streamGenericResponse, generateContent } from '../services/geminiService';
+import * as cryptoService from '../services/cryptoService';
 import { logger } from '../services/loggingService';
 import { ChatBubbleIcon } from './icons/ChatBubbleIcon';
 import { ImageIcon } from './icons/ImageIcon';
 import { BookIcon } from './icons/BookIcon';
-
-const MEMORY_TRIGGER_COUNT = 20;
+import { BrainIcon } from './icons/BrainIcon';
+import { MemoryImportModal } from './MemoryImportModal';
+import { CheckCircleIcon } from './icons/CheckCircleIcon';
+import { ExclamationTriangleIcon } from './icons/ExclamationTriangleIcon';
 
 interface ChatInterfaceProps {
   session: ChatSession;
   allCharacters: Character[];
+  allChatSessions: ChatSession[];
+  userKeys?: CryptoKeys;
   onSessionUpdate: (session: ChatSession) => void;
   onCharacterUpdate: (character: Character) => void;
   onTriggerHook: <T, R>(hookName: string, data: T) => Promise<R>;
+  onMemoryImport: (fromSessionId: string, toSessionId: string) => void;
 }
 
-export const ChatInterface: React.FC<ChatInterfaceProps> = ({ session, allCharacters, onSessionUpdate, onCharacterUpdate, onTriggerHook }) => {
+export const ChatInterface: React.FC<ChatInterfaceProps> = ({ 
+    session, 
+    allCharacters, 
+    allChatSessions,
+    userKeys, 
+    onSessionUpdate, 
+    onCharacterUpdate, 
+    onTriggerHook,
+    onMemoryImport
+}) => {
   const [currentSession, setCurrentSession] = useState<ChatSession>(session);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [isAutoConversing, setIsAutoConversing] = useState(false);
+  const [isMemoryModalVisible, setIsMemoryModalVisible] = useState(false);
+  const [verifiedSignatures, setVerifiedSignatures] = useState<Record<string, boolean>>({});
   const nextSpeakerIndex = useRef(0);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -35,6 +52,29 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ session, allCharac
   useEffect(() => {
     setCurrentSession(session);
   }, [session]);
+  
+  useEffect(() => {
+    const verifyAllMessages = async () => {
+        const verificationResults: Record<string, boolean> = {};
+        for (const msg of currentSession.messages) {
+            if (msg.signature && msg.publicKeyJwk) {
+                try {
+                    const publicKey = await cryptoService.importKey(msg.publicKeyJwk, 'verify');
+                    const dataToVerify: Partial<Message> = { ...msg };
+                    delete dataToVerify.signature;
+                    delete dataToVerify.publicKeyJwk;
+                    const canonicalString = cryptoService.createCanonicalString(dataToVerify);
+                    verificationResults[msg.timestamp] = await cryptoService.verify(canonicalString, msg.signature, publicKey);
+                } catch (e) {
+                    logger.error("Message verification failed during check", e);
+                    verificationResults[msg.timestamp] = false;
+                }
+            }
+        }
+        setVerifiedSignatures(verificationResults);
+    };
+    verifyAllMessages();
+  }, [currentSession.messages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -73,7 +113,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ session, allCharac
         characterId: character.id
     };
     
-    // Add placeholder and update state immediately
     const updatedMessages = [...history, modelPlaceholder];
     const sessionWithPlaceholder = { ...currentSession, messages: updatedMessages };
     setCurrentSession(sessionWithPlaceholder);
@@ -99,9 +138,26 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ session, allCharac
         fullResponse = "Sorry, an error occurred while responding.";
     } finally {
         setIsStreaming(false);
+
+        let finalMessage: Message = { ...modelPlaceholder, content: fullResponse };
+        
+        if (character.keys) {
+            try {
+                const privateKey = await cryptoService.importKey(character.keys.privateKey, 'sign');
+                finalMessage.publicKeyJwk = character.keys.publicKey;
+                const dataToSign: Partial<Message> = { ...finalMessage };
+                delete dataToSign.signature;
+                delete dataToSign.publicKeyJwk;
+                const canonicalString = cryptoService.createCanonicalString(dataToSign);
+                finalMessage.signature = await cryptoService.sign(canonicalString, privateKey);
+            } catch (e) {
+                logger.error(`Failed to sign message for character ${character.name}`, e);
+            }
+        }
+
         const finalSession = {
             ...currentSession,
-            messages: currentSession.messages.map(msg => msg.timestamp === modelPlaceholder.timestamp ? { ...msg, content: fullResponse } : msg)
+            messages: currentSession.messages.map(msg => msg.timestamp === modelPlaceholder.timestamp ? finalMessage : msg)
         };
         setCurrentSession(finalSession);
         onSessionUpdate(finalSession);
@@ -122,7 +178,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ session, allCharac
 
     await triggerAIResponse(speaker, currentSession.messages);
     
-    // Check again in case state changed during response
     if (isAutoConversing) {
        autoConverseTimeout.current = window.setTimeout(handleAutoConversationTurn, 1500);
     }
@@ -137,7 +192,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ session, allCharac
     const wasAutoConversing = isAutoConversing;
     setIsAutoConversing(false);
     
-    // Handle commands
     if (trimmedInput.startsWith('/')) {
         const [command, ...args] = trimmedInput.substring(1).split(' ');
         const content = args.join(' ');
@@ -156,7 +210,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ session, allCharac
         }
     }
     
-    // Handle user input during auto-conversation (as guidance)
     if (wasAutoConversing) {
         addSystemMessage(`[User Guidance]: ${trimmedInput}`);
         setIsAutoConversing(true);
@@ -165,8 +218,22 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ session, allCharac
         return;
     }
 
-    // Handle normal user message
-    const userMessage: Message = { role: 'user', content: trimmedInput, timestamp: new Date().toISOString() };
+    let userMessage: Message = { role: 'user', content: trimmedInput, timestamp: new Date().toISOString() };
+    
+    if (userKeys) {
+        try {
+            const privateKey = await cryptoService.importKey(userKeys.privateKey, 'sign');
+            userMessage.publicKeyJwk = userKeys.publicKey;
+            const dataToSign: Partial<Message> = { ...userMessage };
+            delete dataToSign.signature;
+            delete dataToSign.publicKeyJwk;
+            const canonicalString = cryptoService.createCanonicalString(dataToSign);
+            userMessage.signature = await cryptoService.sign(canonicalString, privateKey);
+        } catch(e) {
+            logger.error("Failed to sign user message", e);
+        }
+    }
+
     const newHistory = [...currentSession.messages, userMessage];
     addMessage(userMessage);
     setInput('');
@@ -177,7 +244,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ session, allCharac
         await triggerAIResponse(respondent, newHistory);
     }
 
-  }, [input, isStreaming, isAutoConversing, participants, currentSession.messages, addMessage, addSystemMessage, handleAutoConversationTurn, triggerAIResponse]);
+  }, [input, isStreaming, isAutoConversing, participants, currentSession.messages, addMessage, addSystemMessage, handleAutoConversationTurn, triggerAIResponse, userKeys]);
   
   const renderMessageContent = (message: Message) => {
     return message.content.split('\n').map((line, index) => (
@@ -189,6 +256,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ session, allCharac
 
   return (
     <div className="flex flex-col h-full bg-nexus-gray-900">
+      {isMemoryModalVisible && (
+        <MemoryImportModal 
+            allSessions={allChatSessions}
+            currentSessionId={currentSession.id}
+            onClose={() => setIsMemoryModalVisible(false)}
+            onImport={(fromSessionId) => {
+                onMemoryImport(fromSessionId, currentSession.id);
+                setIsMemoryModalVisible(false);
+            }}
+        />
+      )}
       <header className="flex items-center p-4 border-b border-nexus-gray-700">
         <div className="flex -space-x-4">
             {participants.slice(0, 3).map(p => (
@@ -222,13 +300,19 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ session, allCharac
                 {msg.role === 'model' && msgCharacter && (
                   <img src={msgCharacter.avatarUrl || `https://picsum.photos/seed/${msgCharacter.id}/40/40`} alt={msgCharacter.name} className="w-8 h-8 rounded-full flex-shrink-0" title={msgCharacter.name}/>
                 )}
-                <div className={`max-w-xl p-3 rounded-lg ${
+                <div className={`relative max-w-xl p-3 rounded-lg ${
                     msg.role === 'user'
                       ? 'bg-nexus-blue-600 text-white'
                       : 'bg-nexus-gray-800 text-nexus-gray-200'
                   }`}>
                   {msg.role === 'model' && msgCharacter && <p className="font-bold text-sm mb-1">{msgCharacter.name}</p>}
                   {renderMessageContent(msg)}
+                  {msg.signature && (
+                    <div className="absolute -bottom-2 -right-2 bg-nexus-gray-800 rounded-full p-0.5">
+                        {verifiedSignatures[msg.timestamp] === true && <CheckCircleIcon className="w-4 h-4 text-green-400" title="Signature Verified" />}
+                        {verifiedSignatures[msg.timestamp] === false && <ExclamationTriangleIcon className="w-4 h-4 text-yellow-400" title="Signature Invalid" />}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -248,6 +332,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ session, allCharac
             rows={1}
             disabled={isStreaming && !isAutoConversing}
           />
+          <button onClick={() => setIsMemoryModalVisible(true)} title="Import Memory From Another Chat" className="p-2 text-nexus-gray-400 hover:text-white disabled:opacity-50" disabled={isStreaming}>
+            <BrainIcon className="w-6 h-6" />
+          </button>
           <button title="Narrate" className="p-2 text-nexus-gray-400 hover:text-white disabled:opacity-50" disabled={isStreaming}>
             <BookIcon className="w-6 h-6" />
           </button>

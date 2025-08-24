@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Character, ChatSession, AppData, Plugin, GeminiApiRequest } from '../types';
+import { Character, ChatSession, AppData, Plugin, GeminiApiRequest, Message, CryptoKeys } from '../types';
 import { loadData, saveData } from '../services/secureStorage';
 import { CharacterList } from './CharacterList';
 import { ChatList } from './ChatList';
@@ -11,6 +11,8 @@ import { HelpModal } from './HelpModal';
 import { ChatSelectionModal } from './ChatSelectionModal';
 import { PluginSandbox } from '../services/pluginSandbox';
 import * as geminiService from '../services/geminiService';
+import * as compatibilityService from '../services/compatibilityService';
+import * as cryptoService from '../services/cryptoService';
 import { logger } from '../services/loggingService';
 import { DownloadIcon } from './icons/DownloadIcon';
 import { UploadIcon } from './icons/UploadIcon';
@@ -96,21 +98,41 @@ export const MainLayout: React.FC = () => {
         const loadInitialData = async () => {
             logger.log("Loading initial application data...");
             const data = await loadData();
+            let dataNeedsSave = false;
+            
+            // --- Key Generation and Migration ---
+            if (!data.userKeys) {
+                logger.log("User signing keys not found. Generating new master key pair.");
+                const keyPair = await cryptoService.generateSigningKeyPair();
+                data.userKeys = {
+                    publicKey: await cryptoService.exportKey(keyPair.publicKey),
+                    privateKey: await cryptoService.exportKey(keyPair.privateKey),
+                };
+                dataNeedsSave = true;
+                logger.log("New user master key pair generated.");
+            }
             
             let hasDefaultPlugin = data.plugins && data.plugins.some(p => p.id === defaultImagePlugin.id);
             if (!hasDefaultPlugin) {
                 if (!data.plugins) data.plugins = [];
                 data.plugins.push(defaultImagePlugin);
                 logger.log("Default image generation plugin injected.");
+                dataNeedsSave = true;
             } else {
                 data.plugins = data.plugins.map(p => {
                     if (p.id === defaultImagePlugin.id && !p.settings) {
+                        dataNeedsSave = true;
                         return { ...p, settings: defaultImagePlugin.settings };
                     }
                     return p;
                 });
             }
 
+            if (dataNeedsSave) {
+                await persistData(data);
+                logger.log("Initial data modifications saved.");
+            }
+            
             setAppData(data);
             if (data.chatSessions.length > 0) {
                 setSelectedChatId(data.chatSessions[0].id);
@@ -123,7 +145,7 @@ export const MainLayout: React.FC = () => {
             sandboxes.forEach(sandbox => sandbox.terminate());
             sandboxes.clear();
         };
-    }, []);
+    }, [persistData]);
 
     useEffect(() => {
         appData.plugins?.forEach(async (plugin) => {
@@ -154,14 +176,42 @@ export const MainLayout: React.FC = () => {
 
     }, [appData.plugins, sandboxes, handlePluginApiRequest]);
 
-    const handleSaveCharacter = (character: Character) => {
+    const handleSaveCharacter = async (character: Character) => {
         const isNew = !appData.characters.some(c => c.id === character.id);
-        const updatedCharacters = isNew ? [...appData.characters, character] : appData.characters.map(c => c.id === character.id ? character : c);
+        let updatedCharacter = { ...character };
+
+        // Generate signing keys for a new character or one that's missing them
+        if (isNew || !updatedCharacter.keys) {
+            logger.log(`Generating signing keys for character: ${updatedCharacter.name}`);
+            const keyPair = await cryptoService.generateSigningKeyPair();
+            updatedCharacter.keys = {
+                publicKey: await cryptoService.exportKey(keyPair.publicKey),
+                privateKey: await cryptoService.exportKey(keyPair.privateKey),
+            };
+        }
+        
+        // Sign the character data with the user's master key
+        if (appData.userKeys) {
+            logger.log("Signing character data with user's master key...");
+            const userPrivateKey = await cryptoService.importKey(appData.userKeys.privateKey, 'sign');
+            
+            const dataToSign: Partial<Character> = { ...updatedCharacter };
+            delete dataToSign.signature; // Exclude the signature itself
+            
+            const canonicalString = cryptoService.createCanonicalString(dataToSign);
+            updatedCharacter.signature = await cryptoService.sign(canonicalString, userPrivateKey);
+            updatedCharacter.userPublicKeyJwk = appData.userKeys.publicKey;
+            logger.log("Character data signed successfully.");
+        }
+
+        const updatedCharacters = isNew 
+            ? [...appData.characters, updatedCharacter] 
+            : appData.characters.map(c => c.id === updatedCharacter.id ? updatedCharacter : c);
         
         const updatedData = { ...appData, characters: updatedCharacters };
         setAppData(updatedData);
         persistData(updatedData);
-        logger.log(`Character ${isNew ? 'created' : 'updated'}: ${character.name}`);
+        logger.log(`Character ${isNew ? 'created' : 'updated'}: ${updatedCharacter.name}`);
         
         setView('chat');
         setEditingCharacter(null);
@@ -250,24 +300,53 @@ export const MainLayout: React.FC = () => {
         persistData(updatedData);
     };
 
-    const handleExportData = async () => {
+    const triggerDownload = (filename: string, data: object) => {
+        const jsonString = JSON.stringify(data, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
+    const handleExportBackup = async () => {
         try {
             const data = await loadData();
-            const jsonString = JSON.stringify(data, null, 2);
-            const blob = new Blob([jsonString], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
             const timestamp = new Date().toISOString().split('T')[0];
-            a.download = `ai-nexus-backup-${timestamp}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            logger.log("Data exported successfully.", { filename: a.download });
+            const filename = `ai-nexus-backup-${timestamp}.json`;
+            triggerDownload(filename, data);
+            logger.log("Full backup exported successfully.", { filename });
         } catch (error) {
-            logger.error("Failed to export data.", error);
-            alert("Failed to export data. Check logs for details.");
+            logger.error("Failed to export backup.", error);
+            alert("Failed to export backup. Check logs for details.");
+        }
+    };
+
+    const handleExportCharacter = async (characterId: string) => {
+        const character = appData.characters.find(c => c.id === characterId);
+        if (character) {
+            try {
+                const card = await compatibilityService.nexusToV2(character);
+                const filename = `${character.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.json`;
+                triggerDownload(filename, card);
+                logger.log(`Exported character: ${character.name}`, { filename });
+            } catch (error) {
+                logger.error(`Failed to export character: ${character.name}`, error);
+                alert(`Failed to export character. Check logs. Error: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }
+    };
+
+    const handleExportChat = (sessionId: string) => {
+        const session = appData.chatSessions.find(s => s.id === sessionId);
+        if (session) {
+            const filename = `${session.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_chat.json`;
+            triggerDownload(filename, session);
+            logger.log(`Exported chat: ${session.name}`, { filename });
         }
     };
     
@@ -279,35 +358,65 @@ export const MainLayout: React.FC = () => {
         const reader = new FileReader();
         reader.onload = async (e) => {
             try {
-                const text = e.target?.result;
-                if (typeof text !== 'string') throw new Error('Invalid file content');
-                
+                const text = e.target?.result as string;
                 const data = JSON.parse(text);
 
-                if (typeof data !== 'object' || data === null || Array.isArray(data)) {
-                    throw new Error("Invalid backup file format. Expected a JSON object.");
+                // 1. Check for AI Nexus Full Backup
+                if (data.characters && data.chatSessions) {
+                    if (window.confirm('This appears to be a full backup. Importing it will overwrite all current data. Are you sure?')) {
+                        await persistData(data);
+                        logger.log("Full backup imported successfully! Reloading application...");
+                        alert('Backup restored successfully! The application will now reload.');
+                        window.location.reload();
+                    }
+                    return;
+                }
+
+                // 2. Check for Character Card
+                const importedChar = compatibilityService.v2ToNexus(data);
+                if (importedChar) {
+                    // Asynchronously verify signature if it exists
+                    if (importedChar.signature && importedChar.userPublicKeyJwk) {
+                        (async () => {
+                            try {
+                                const userPublicKey = await cryptoService.importKey(importedChar.userPublicKeyJwk, 'verify');
+                                const dataToVerify: Partial<Character> = { ...importedChar };
+                                delete dataToVerify.signature;
+                                const canonicalString = cryptoService.createCanonicalString(dataToVerify);
+                                const isValid = await cryptoService.verify(canonicalString, importedChar.signature, userPublicKey);
+                                if (!isValid) {
+                                    logger.warn(`Signature for imported character "${importedChar.name}" is INVALID.`);
+                                    alert(`Warning: The signature for the imported character "${importedChar.name}" is invalid. The data may have been tampered with.`);
+                                } else {
+                                    logger.log(`Signature for imported character "${importedChar.name}" is VALID.`);
+                                }
+                            } catch (err) {
+                                 logger.error(`Error verifying signature for imported character "${importedChar.name}".`, err);
+                            }
+                        })();
+                    }
+                    
+                    const updatedData = { ...appData, characters: [...appData.characters, importedChar] };
+                    setAppData(updatedData);
+                    await persistData(updatedData);
+                    logger.log(`Imported character: ${importedChar.name}`);
+                    alert(`Character "${importedChar.name}" imported successfully. Edit and save the character to generate new signing keys.`);
+                    return;
+                }
+
+                // 3. Check for AI Nexus Chat Session
+                if (data.id && Array.isArray(data.messages) && Array.isArray(data.characterIds)) {
+                    const newSession: ChatSession = { ...data, id: crypto.randomUUID() }; // new ID to prevent collision
+                    const updatedData = { ...appData, chatSessions: [...appData.chatSessions, newSession] };
+                    setAppData(updatedData);
+                    await persistData(updatedData);
+                    logger.log(`Imported chat session: ${newSession.name}`);
+                    alert(`Chat "${newSession.name}" imported successfully.`);
+                    return;
                 }
                 
-                const importedPlugins = Array.isArray(data.plugins) ? data.plugins : [];
-                const hasDefaultPlugin = importedPlugins.some(p => p.id === defaultImagePlugin.id);
-                if (!hasDefaultPlugin) {
-                    importedPlugins.push(defaultImagePlugin);
-                }
+                throw new Error("Unrecognized file format.");
 
-                const importedData: AppData = {
-                    characters: Array.isArray(data.characters) ? data.characters : [],
-                    chatSessions: Array.isArray(data.chatSessions) ? data.chatSessions : [],
-                    plugins: importedPlugins,
-                };
-
-                if (window.confirm('This will overwrite all current data. Are you sure you want to proceed?')) {
-                    await persistData(importedData);
-                    logger.log("Data imported successfully! Reloading application...");
-                    alert('Data imported successfully! The application will now reload to apply the changes.');
-                    window.location.reload();
-                } else {
-                    logger.log("Data import cancelled by user.");
-                }
             } catch (error) {
                 logger.error("Import failed:", error);
                 alert(`Failed to import data. Please check the file format and logs. Error: ${error instanceof Error ? error.message : String(error)}`);
@@ -324,6 +433,55 @@ export const MainLayout: React.FC = () => {
         const updatedData = { ...appData, plugins: updatedPlugins };
         setAppData(updatedData);
         persistData(updatedData);
+    };
+
+    const handleMemoryImport = (fromSessionId: string, toSessionId: string) => {
+        const fromSession = appData.chatSessions.find(s => s.id === fromSessionId);
+        const toSession = appData.chatSessions.find(s => s.id === toSessionId);
+
+        if (!fromSession || !toSession) {
+            logger.error("Could not find sessions for memory import.");
+            return;
+        }
+
+        const toSessionParticipants = appData.characters.filter(c => toSession.characterIds.includes(c.id));
+        let charactersToUpdate: Character[] = [];
+        let memoriesImported = false;
+
+        toSessionParticipants.forEach(toChar => {
+            if (fromSession.characterIds.includes(toChar.id)) {
+                const fromChar = appData.characters.find(c => c.id === toChar.id);
+                if (fromChar && fromChar.memory && fromChar.memory.trim() !== 'No memories yet.') {
+                    const updatedMemory = `${toChar.memory || ''}\n\n[Imported memory from chat "${fromSession.name}"]:\n${fromChar.memory}`;
+                    charactersToUpdate.push({ ...toChar, memory: updatedMemory.trim() });
+                    memoriesImported = true;
+                }
+            }
+        });
+        
+        if (!memoriesImported) {
+             alert(`No shared characters with memories found in "${fromSession.name}".`);
+             return;
+        }
+
+        const updatedCharacters = appData.characters.map(c => {
+            const updated = charactersToUpdate.find(uc => uc.id === c.id);
+            return updated || c;
+        });
+        
+        const narratorMessage: Message = {
+            role: 'narrator',
+            content: `Memory from "${fromSession.name}" has been integrated.`,
+            timestamp: new Date().toISOString()
+        };
+        const updatedSession = {...toSession, messages: [...toSession.messages, narratorMessage] };
+        const updatedSessions = appData.chatSessions.map(s => s.id === toSessionId ? updatedSession : s);
+        
+        const updatedData = { ...appData, characters: updatedCharacters, chatSessions: updatedSessions };
+        setAppData(updatedData);
+        persistData(updatedData);
+
+        logger.log(`Memory imported from session "${fromSession.name}" to "${toSession.name}"`);
     };
     
     const triggerPluginHook = useCallback(async <T, R>(hookName: string, data: T): Promise<R> => {
@@ -370,9 +528,12 @@ export const MainLayout: React.FC = () => {
                         key={selectedChat.id}
                         session={selectedChat}
                         allCharacters={appData.characters}
+                        allChatSessions={appData.chatSessions}
+                        userKeys={appData.userKeys}
                         onSessionUpdate={handleSessionUpdate}
                         onTriggerHook={triggerPluginHook}
                         onCharacterUpdate={handleCharacterUpdate}
+                        onMemoryImport={handleMemoryImport}
                     />
                 ) : (
                     <div className="flex-1 flex items-center justify-center">
@@ -408,6 +569,7 @@ export const MainLayout: React.FC = () => {
                     selectedChatId={selectedChatId}
                     onSelectChat={handleSelectChat}
                     onDeleteChat={handleDeleteChat}
+                    onExportChat={handleExportChat}
                 />
                 
                 <div className="mt-4 flex-shrink-0">
@@ -416,18 +578,19 @@ export const MainLayout: React.FC = () => {
                         onDeleteCharacter={handleDeleteCharacter}
                         onEditCharacter={handleEditCharacter}
                         onAddNew={handleAddNewCharacter}
+                        onExportCharacter={handleExportCharacter}
                     />
                 </div>
 
                 <div className="mt-auto pt-4 border-t border-nexus-gray-700 grid grid-cols-2 gap-2">
-                    <button onClick={handleExportData} title="Export All Data" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
-                        <DownloadIcon className="w-4 h-4" />
-                        <span>Export</span>
-                    </button>
                     <input type="file" ref={fileInputRef} onChange={handleImportData} accept=".json" className="hidden" />
-                    <button onClick={() => fileInputRef.current?.click()} title="Import Data from File" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
+                    <button onClick={() => fileInputRef.current?.click()} title="Import Character, Chat, or Backup" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
                         <UploadIcon className="w-4 h-4" />
                         <span>Import</span>
+                    </button>
+                    <button onClick={handleExportBackup} title="Export Full Backup" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
+                        <DownloadIcon className="w-4 h-4" />
+                        <span>Export Backup</span>
                     </button>
                     <button onClick={() => setView('plugins')} title="Manage Plugins" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
                         <CodeIcon className="w-4 h-4" />

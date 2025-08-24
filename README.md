@@ -2,28 +2,37 @@
 
 AI Nexus is a sophisticated, browser-based AI character generator and chat platform. It empowers users to create, manage, and interact with complex AI personalities with rich, persistent memory and lore. The application is designed with privacy in mind, featuring simulated end-to-end encryption for all local data, and offers a powerful plugin system to extend its capabilities.
 
+It is designed for interoperability, supporting the import and export of character cards from other popular platforms.
+
 ## ✨ Features
 
-- **🔒 Secure Local Storage**: All your characters, conversations, and plugins are stored locally in your browser and encrypted with a master password.
+- **🔒 Secure Local Storage**: All your characters, conversations, and plugins are stored locally in your browser's IndexedDB and encrypted with a master password.
+- **Compatibility First**:
+  - **Import Character Cards**: Import character `.json` files compatible with formats like Character Card V2 used by TavernAI, SillyTavern, Chub, etc.
+  - **Export Universal Cards**: Export your characters in a compatible V2 format, including a base64-encoded avatar, for use in other applications.
 - **👤 Advanced Character Creation**:
   - Define core identity, physical appearance, personality traits, and tags.
   - Write detailed `Role Instructions` (system prompts) to guide AI behavior.
   - Build a persistent knowledge base with `Lore`, which can be updated directly from the chat.
   - A `Memory` system that automatically summarizes conversation highlights to ensure continuity.
 - **💬 Dynamic Chat Interface**:
-  - Real-time, streaming responses from AI characters.
-  - Special commands like `/lore` and `/memory` to dynamically update your character's knowledge.
-  - **Interactive Narrator**: A narrator can be prompted to describe scenes or continue the story based on chat context.
-  - **Integrated Image Generation**: Generate images based on a text prompt or the recent conversation context.
+  - **Multi-Character Chat**: Create group chats with two or more AI characters who can interact with you and each other.
+  - **AI Self-Conversation**: Use the `/converse` command to have characters talk to each other based on a topic you provide.
+  - **Cross-Chat Memory**: Import memories from one chat session into another, allowing characters to recall experiences from different "storylines".
+  - Special commands like `/lore` to dynamically update your character's knowledge base.
+  - Integrated image and scene narration generation.
 - **🔌 Extensible Plugin System**:
   - Write custom JavaScript plugins to modify application behavior (e.g., intercept and change messages).
-  - Plugins run in a secure sandboxed environment.
+  - Plugins run in a secure, sandboxed Web Worker environment.
   - Configure the default Image Generation plugin with preset styles, negative prompts, and custom API endpoints.
 - **🌐 Multi-API Support**:
   - Default support for Google Gemini.
   - Per-character or per-plugin configuration to use custom Gemini API keys.
   - Support for any OpenAI-compatible API, including local models like Ollama or LM Studio.
-- **💾 Data Management**: Easily import and export your entire application data (characters, chats, plugins) in a single JSON file.
+- **💾 Granular Data Management**:
+  - **Full Backup**: Export and import your entire application data (characters, chats, plugins) in a single JSON file.
+  - **Individual Export**: Export single characters or chat histories.
+  - **Smart Import**: The app automatically detects whether you are importing a full backup, a character card, or a chat session.
 
 ---
 
@@ -73,6 +82,9 @@ A: This master password is used to encrypt all your data (characters, chats, etc
 **Q: I forgot my master password. Can I recover it?**
 A: No. Due to the local encryption model, there is no password recovery. The only way to regain access is to clear your browser's site data for the application, which will delete all your encrypted data.
 
+**Q: How do I import a character from another program?**
+A: Use the "Import" button in the bottom-left sidebar. Select the character's `.json` file. AI Nexus will automatically detect it's a character card and add it to your character list without overwriting your other data.
+
 **Q: How do I use a local AI model like Ollama?**
 A: You can connect to local models that expose an OpenAI-compatible API.
 1. Make sure your local model server (e.g., Ollama) is running.
@@ -88,4 +100,4 @@ A: This is usually an API key or endpoint issue.
 - **Solution**: Always use the "API Configuration" settings. Go into the Character settings (for chat) or the Image Generation plugin settings and explicitly set your API service, endpoint, and key. Double-check that the keys and URLs are correct and have no extra spaces.
 
 **Q: How do I back up my data?**
-A: Use the "Export" button on the bottom-left sidebar. This will save a single `ai-nexus-backup-YYYY-MM-DD.json` file containing everything. To restore, use the "Import" button.
+A: Use the "Export Backup" button on the bottom-left sidebar. This will save a single `ai-nexus-backup-YYYY-MM-DD.json` file containing everything. To restore, use the "Import" button and select your backup file—note that this will overwrite all current data. To save individual characters or chats, use the download icon next to their names in the sidebar lists.

@@ -3,19 +3,22 @@ import { Character } from '../types';
 import { PlusIcon } from './icons/PlusIcon';
 import { TrashIcon } from './icons/TrashIcon';
 import { EditIcon } from './icons/EditIcon';
+import { DownloadIcon } from './icons/DownloadIcon';
 
 interface CharacterListProps {
   characters: Character[];
   onDeleteCharacter: (id: string) => void;
   onEditCharacter: (character: Character) => void;
   onAddNew: () => void;
+  onExportCharacter: (id: string) => void;
 }
 
 export const CharacterList: React.FC<CharacterListProps> = ({
   characters,
   onDeleteCharacter,
   onEditCharacter,
-  onAddNew
+  onAddNew,
+  onExportCharacter
 }) => {
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -49,6 +52,13 @@ export const CharacterList: React.FC<CharacterListProps> = ({
                 </div>
               </div>
               <div className="ml-2 flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onExportCharacter(char.id); }}
+                  className="p-1 rounded text-nexus-gray-400 hover:text-white hover:bg-nexus-gray-600"
+                  title="Export Character"
+                >
+                  <DownloadIcon className="w-4 h-4" />
+                </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); onEditCharacter(char); }}
                   className="p-1 rounded text-nexus-gray-400 hover:text-white hover:bg-nexus-gray-600"

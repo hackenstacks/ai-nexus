@@ -1,3 +1,8 @@
+export interface CryptoKeys {
+    publicKey: JsonWebKey;
+    privateKey: JsonWebKey;
+}
+
 export interface Message {
   role: 'user' | 'model' | 'narrator';
   content: string;
@@ -9,6 +14,9 @@ export interface Message {
     url?: string;
     prompt?: string;
   };
+  // New security fields
+  signature?: string; // Signed by user or character's private key
+  publicKeyJwk?: JsonWebKey; // Public key of the signer for verification
 }
 
 export interface ChatSession {
@@ -39,6 +47,10 @@ export interface Character {
   personalityTraits?: string; // Comma-separated
   lore?: string[];
   memory?: string;
+  // New security fields
+  keys?: CryptoKeys; // Character's own signing key pair
+  signature?: string; // Signed by the USER's master private key
+  userPublicKeyJwk?: JsonWebKey; // User's public key that signed this character
 }
 
 export interface Plugin {
@@ -56,6 +68,8 @@ export interface AppData {
   characters: Character[];
   chatSessions: ChatSession[];
   plugins?: Plugin[];
+  // New security field
+  userKeys?: CryptoKeys;
 }
 
 // Types for the secure plugin API bridge

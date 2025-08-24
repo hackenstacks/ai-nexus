@@ -2,6 +2,7 @@ import React from 'react';
 import { ChatSession, Character } from '../types';
 import { TrashIcon } from './icons/TrashIcon';
 import { UsersIcon } from './icons/UsersIcon';
+import { DownloadIcon } from './icons/DownloadIcon';
 
 interface ChatListProps {
   chatSessions: ChatSession[];
@@ -9,6 +10,7 @@ interface ChatListProps {
   selectedChatId?: string | null;
   onSelectChat: (id: string) => void;
   onDeleteChat: (id: string) => void;
+  onExportChat: (id: string) => void;
 }
 
 export const ChatList: React.FC<ChatListProps> = ({
@@ -17,6 +19,7 @@ export const ChatList: React.FC<ChatListProps> = ({
   selectedChatId,
   onSelectChat,
   onDeleteChat,
+  onExportChat,
 }) => {
   const getCharacter = (id: string) => characters.find(c => c.id === id);
 
@@ -60,7 +63,14 @@ export const ChatList: React.FC<ChatListProps> = ({
                     {participants.length > 0 ? participants.map(p => p.name).join(', ') : 'Empty Chat'}
                   </p>
                 </div>
-                 <div className="ml-2 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                 <div className="ml-2 flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onExportChat(session.id); }}
+                        className="p-1 rounded text-nexus-gray-400 hover:text-white hover:bg-nexus-gray-600"
+                        title="Export Chat"
+                    >
+                        <DownloadIcon className="w-4 h-4" />
+                    </button>
                     <button
                         onClick={(e) => { e.stopPropagation(); onDeleteChat(session.id); }}
                         className="p-1 rounded text-nexus-gray-400 hover:text-red-400 hover:bg-nexus-gray-600"

@@ -37,66 +37,62 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
                 </HelpSubSection>
             </HelpSection>
 
-            <HelpSection title="Managing Characters">
-                 <p>Characters are the heart of AI Nexus. You can create, edit, and chat with unique AI personalities.</p>
-                <HelpSubSection title="Creating & Editing Characters">
-                    <p>Click the `+` icon in the character list to create a new character. The form is divided into sections:</p>
+            <HelpSection title="Data Management & Compatibility">
+                 <p>AI Nexus is designed to be open and compatible. You have full control over your data.</p>
+                <HelpSubSection title="Smart Import">
+                    <p>Click the `Import` button in the sidebar to open a file picker. AI Nexus automatically detects what you are importing:</p>
                     <ul className="list-disc list-inside space-y-2">
-                        <li><strong>Core Identity:</strong> Basic information like name, avatar, a short description, and searchable tags.</li>
-                        <li><strong>Persona & Prompting:</strong> Define the AI's personality. The `Role Instruction / System Prompt` is the most important field, acting as the primary instruction set for the AI.</li>
-                        <li><strong>Memory & Lore:</strong> These fields give your character continuity. `Lore` contains key facts that don't change, while `Memory` is an auto-summarized log of important conversation points.</li>
-                        <li><strong>API Configuration:</strong> Assign a specific AI model or API key to this character, overriding the default settings. This is useful for connecting to local models like Ollama.</li>
+                        <li><strong>Character Card (.json):</strong> Imports a character from another platform (like SillyTavern, Chub, etc.). This will add the character to your list without overwriting other data.</li>
+                        <li><strong>Chat Session (.json):</strong> Imports a chat history file that was exported from AI Nexus.</li>
+                        <li><strong>Full Backup (.json):</strong> A full backup file from AI Nexus. Importing this will ask for confirmation before overwriting all your current data.</li>
+                    </ul>
+                </HelpSubSection>
+                 <HelpSubSection title="Granular Export">
+                    <p>You can export data in several ways:</p>
+                    <ul className="list-disc list-inside space-y-2">
+                        <li><strong>Export Character:</strong> Click the download icon next to any character's name to save them as a universal `.json` character card.</li>
+                        <li><strong>Export Chat:</strong> Click the download icon next to any chat's name to save the conversation history as a `.json` file.</li>
+                        <li><strong>Export Backup:</strong> Click the `Export Backup` button in the sidebar to save a full backup of your entire instance.</li>
                     </ul>
                 </HelpSubSection>
             </HelpSection>
             
             <HelpSection title="The Chat Interface">
-                 <p>Select a character from the list to begin a conversation.</p>
-                 <HelpSubSection title="Special Commands">
-                    <p>You can use slash commands in the chat input to directly interact with your character's data:</p>
+                 <p>Select or create a chat to begin a conversation. You can create chats with a single character or a group of characters for complex interactions.</p>
+                 <HelpSubSection title="Slash Commands">
+                    <p>Use slash commands in the chat input for special actions:</p>
                     <ul className="list-disc list-inside">
-                        <li><code className="bg-nexus-dark px-1 rounded">/lore [your fact here]</code> - Adds a new line to the character's Lore sheet.</li>
-                        <li><code className="bg-nexus-dark px-1 rounded">/memory [your memory here]</code> - Manually adds a new line to the character's Memory.</li>
+                        <li><code className="bg-nexus-dark px-1 rounded">/lore [your fact here]</code> - Adds a new fact to the character's permanent Lore sheet.</li>
+                        <li><code className="bg-nexus-dark px-1 rounded">/converse [optional topic]</code> - (Group chats only) AIs will start talking to each other. You can provide a topic or let them decide.</li>
+                         <li><code className="bg-nexus-dark px-1 rounded">/end</code> - Stops an ongoing AI conversation.</li>
                     </ul>
                  </HelpSubSection>
                  <HelpSubSection title="Action Buttons">
-                    <div className="flex items-start space-x-4">
-                        <p>Next to the input field, you'll find powerful action buttons:</p>
-                        <ul className="list-disc list-inside flex-1">
-                           <li><strong>Narrator (Book Icon):</strong>
-                                <br/>- **Single-Click:** Prompts you to enter a narration instruction (e.g., "Describe the weather changing").
-                                <br/>- **Double-Click:** The AI narrates the current situation based on the last few messages.
-                           </li>
-                           <li className="mt-2"><strong>Image Generation (Image Icon):</strong>
-                                <br/>- **Single-Click:** Prompts you to enter a prompt for image generation.
-                                <br/>- **Double-Click:** The AI creates an image prompt by summarizing the recent chat context.
-                           </li>
-                        </ul>
-                    </div>
+                    <p>Next to the input field, you'll find powerful action buttons:</p>
+                    <ul className="list-disc list-inside space-y-2">
+                       <li><strong>Import Memory (Brain Icon):</strong> Allows a character to "remember" things from other chats. Click it, select another chat session, and any shared characters will have their memories from that session appended to their current memory. Great for continuity across different scenarios.</li>
+                       <li><strong>Narrator (Book Icon):</strong>
+                           <br/>- **Single-Click:** Prompts you to enter a narration instruction (e.g., "Describe the weather changing").
+                           <br/>- **Double-Click:** The AI narrates the current situation based on the last few messages.
+                       </li>
+                       <li><strong>Image Generation (Image Icon):</strong>
+                           <br/>- **Single-Click:** Prompts you to enter a prompt for image generation.
+                           <br/>- **Double-Click:** The AI creates an image prompt by summarizing the recent chat context.
+                       </li>
+                    </ul>
                  </HelpSubSection>
             </HelpSection>
 
             <HelpSection title="Plugin System">
                 <p>Plugins are custom JavaScript snippets that can extend AI Nexus's functionality. They run in a secure, sandboxed environment.</p>
-                <HelpSubSection title="Managing Plugins">
-                    <p>In the Plugin Manager, you can create new plugins, edit existing ones, or import/export them as JSON files. You must enable a plugin using the power icon for it to run.</p>
-                </HelpSubSection>
                 <HelpSubSection title="Configuring the Image Generator">
-                    <p>The default "Image Generation" plugin can be configured by clicking its edit icon. Here you can:</p>
+                    <p>The default "Image Generation" plugin is highly configurable. Go to `Plugins` and click its edit icon to:</p>
                     <ul className="list-disc list-inside">
                         <li>Select a preset art style to apply to all generations.</li>
                         <li>Add a global "Negative Prompt" to exclude unwanted elements from images.</li>
-                        <li>Set a specific API (e.g., DALL-E via an OpenAI-compatible endpoint) just for image generation.</li>
+                        <li>Set a specific API (e.g., DALL-E via an OpenAI-compatible endpoint) just for image generation, separate from your chat characters.</li>
                     </ul>
                 </HelpSubSection>
-            </HelpSection>
-            
-            <HelpSection title="Data Management">
-                <p>Your data is yours. The sidebar provides tools for complete data management.</p>
-                <ul className="list-disc list-inside">
-                    <li><strong>Export:</strong> Downloads a single JSON file containing all your characters, chat sessions, and plugins. It's a full backup of your application state.</li>
-                    <li><strong>Import:</strong> Upload a previously exported JSON file to overwrite your current data. This is useful for migrating between browsers or devices.</li>
-                </ul>
             </HelpSection>
 
         </div>
