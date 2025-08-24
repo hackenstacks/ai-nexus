@@ -155,12 +155,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             }
         }
 
-        const finalSession = {
-            ...currentSession,
-            messages: currentSession.messages.map(msg => msg.timestamp === modelPlaceholder.timestamp ? finalMessage : msg)
-        };
-        setCurrentSession(finalSession);
-        onSessionUpdate(finalSession);
+        setCurrentSession(current => {
+            const updatedMessages = current.messages.map(msg =>
+                msg.timestamp === modelPlaceholder.timestamp ? finalMessage : msg
+            );
+            const finalSession = { ...current, messages: updatedMessages };
+            onSessionUpdate(finalSession);
+            return finalSession;
+        });
     }
 }, [currentSession, onSessionUpdate, participants]);
 

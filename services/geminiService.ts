@@ -77,7 +77,9 @@ const streamOpenAIChatResponse = async (
     try {
         const messages = [
             { role: "system", content: systemInstruction },
-            ...history.map(msg => ({ role: msg.role === 'model' ? 'assistant' : 'user', content: msg.content }))
+            ...history
+                .filter(msg => msg.role === 'user' || msg.role === 'model')
+                .map(msg => ({ role: msg.role === 'model' ? 'assistant' : 'user', content: msg.content }))
         ];
 
         const response = await fetchWithRetry(config.apiEndpoint!, {
@@ -234,10 +236,13 @@ const streamGeminiChatResponse = async (
 
     const ai = getAiClient(customApiKey);
     
-    const contents = history.map(msg => ({
-        role: msg.role,
-        parts: [{ text: msg.content }]
-    }));
+    // Filter out 'narrator' roles as they are not supported by the Gemini API.
+    const contents = history
+        .filter(msg => msg.role === 'user' || msg.role === 'model')
+        .map(msg => ({
+            role: msg.role,
+            parts: [{ text: msg.content }]
+        }));
 
     try {
         const responseStream = await ai.models.generateContentStream({
