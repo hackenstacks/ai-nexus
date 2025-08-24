@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback } from 'react';
 import { LockIcon } from './icons/LockIcon';
 import { setMasterPassword } from '../services/secureStorage';
@@ -43,13 +42,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isPasswordSet, onLogin, 
   }, [isPasswordSet, onLogin, password, confirmPassword, onPasswordSet]);
 
   return (
-    <div className="w-full max-w-md p-8 space-y-8 bg-nexus-gray-800 rounded-lg shadow-2xl">
+    <div className="w-full max-w-md p-8 space-y-8 bg-nexus-gray-light-100 dark:bg-nexus-gray-800 rounded-lg shadow-2xl">
       <div className="text-center">
         <LockIcon className="w-16 h-16 mx-auto text-nexus-blue-500"/>
-        <h2 className="mt-6 text-3xl font-extrabold text-white">
+        <h2 className="mt-6 text-3xl font-extrabold text-nexus-gray-900 dark:text-white">
           {isPasswordSet ? 'Enter Master Password' : 'Create Master Password'}
         </h2>
-        <p className="mt-2 text-sm text-nexus-gray-400">
+        <p className="mt-2 text-sm text-nexus-gray-700 dark:text-nexus-gray-400">
           {isPasswordSet ? 'Your local data is encrypted.' : 'This password encrypts all your local data.'}
         </p>
       </div>
@@ -62,7 +61,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isPasswordSet, onLogin, 
               type="password"
               autoComplete="current-password"
               required
-              className="appearance-none rounded-none relative block w-full px-3 py-3 border border-nexus-gray-700 bg-nexus-gray-900 placeholder-nexus-gray-500 text-white rounded-t-md focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500 focus:z-10 sm:text-sm"
+              className="appearance-none rounded-none relative block w-full px-3 py-3 border border-nexus-gray-500 dark:border-nexus-gray-700 bg-nexus-gray-light-100 dark:bg-nexus-gray-900 placeholder-nexus-gray-600 dark:placeholder-nexus-gray-500 text-nexus-gray-900 dark:text-white rounded-t-md focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500 focus:z-10 sm:text-sm"
               placeholder="Master Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -76,7 +75,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isPasswordSet, onLogin, 
                 type="password"
                 autoComplete="new-password"
                 required
-                className="appearance-none rounded-none relative block w-full px-3 py-3 border border-nexus-gray-700 bg-nexus-gray-900 placeholder-nexus-gray-500 text-white rounded-b-md focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500 focus:z-10 sm:text-sm"
+                className="appearance-none rounded-none relative block w-full px-3 py-3 border border-nexus-gray-500 dark:border-nexus-gray-700 bg-nexus-gray-light-100 dark:bg-nexus-gray-900 placeholder-nexus-gray-600 dark:placeholder-nexus-gray-500 text-nexus-gray-900 dark:text-white rounded-b-md focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500 focus:z-10 sm:text-sm"
                 placeholder="Confirm Password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
@@ -85,13 +84,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isPasswordSet, onLogin, 
           )}
         </div>
 
-        {error && <p className="text-red-400 text-sm text-center">{error}</p>}
+        {error && <p className="text-red-500 dark:text-red-400 text-sm text-center">{error}</p>}
 
         <div>
           <button
             type="submit"
             disabled={isLoading}
-            className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-nexus-blue-600 hover:bg-nexus-blue-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-nexus-dark focus:ring-nexus-blue-500 disabled:opacity-50"
+            className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-nexus-blue-600 hover:bg-nexus-blue-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-nexus-light dark:focus:ring-offset-nexus-dark focus:ring-nexus-blue-500 disabled:opacity-50"
           >
             {isLoading ? 'Unlocking...' : (isPasswordSet ? 'Unlock' : 'Create & Unlock')}
           </button>

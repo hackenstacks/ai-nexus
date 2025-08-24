@@ -27,7 +27,7 @@ export const ChatList: React.FC<ChatListProps> = ({
     <div className="flex-1 flex flex-col min-h-0 overflow-y-auto pr-2">
       <div className="space-y-2">
         {chatSessions.length === 0 ? (
-          <p className="text-nexus-gray-400 text-sm text-center py-4">
+          <p className="text-nexus-gray-700 dark:text-nexus-gray-400 text-sm text-center py-4">
             No chats yet. Click '+' to start a new conversation.
           </p>
         ) : (
@@ -41,7 +41,7 @@ export const ChatList: React.FC<ChatListProps> = ({
                 className={`group flex items-center p-3 rounded-lg cursor-pointer transition-colors ${
                   selectedChatId === session.id
                     ? 'bg-nexus-blue-600 text-white'
-                    : 'bg-nexus-gray-900 hover:bg-nexus-gray-700'
+                    : 'bg-nexus-gray-light-100 dark:bg-nexus-gray-900 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700'
                 }`}
               >
                 <div className="flex-shrink-0 mr-3">
@@ -52,28 +52,28 @@ export const ChatList: React.FC<ChatListProps> = ({
                       className="w-10 h-10 rounded-full"
                     />
                   ) : (
-                    <div className="w-10 h-10 rounded-full bg-nexus-gray-700 flex items-center justify-center">
-                        <UsersIcon className="w-6 h-6 text-nexus-gray-300" />
+                    <div className="w-10 h-10 rounded-full bg-nexus-gray-light-400 dark:bg-nexus-gray-700 flex items-center justify-center">
+                        <UsersIcon className="w-6 h-6 text-nexus-gray-800 dark:text-nexus-gray-300" />
                     </div>
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold truncate">{session.name}</p>
-                  <p className="text-sm text-nexus-gray-400 truncate group-hover:text-nexus-gray-300">
+                  <p className={`font-semibold truncate ${selectedChatId === session.id ? 'text-white' : 'text-nexus-gray-900 dark:text-white'}`}>{session.name}</p>
+                  <p className={`text-sm truncate ${selectedChatId === session.id ? 'text-nexus-gray-200' : 'text-nexus-gray-700 dark:text-nexus-gray-400 group-hover:text-nexus-gray-800 dark:group-hover:text-nexus-gray-300'}`}>
                     {participants.length > 0 ? participants.map(p => p.name).join(', ') : 'Empty Chat'}
                   </p>
                 </div>
                  <div className="ml-2 flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                         onClick={(e) => { e.stopPropagation(); onExportChat(session.id); }}
-                        className="p-1 rounded text-nexus-gray-400 hover:text-white hover:bg-nexus-gray-600"
+                        className={`p-1 rounded  hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 ${selectedChatId === session.id ? 'text-nexus-gray-200 hover:text-white' : 'text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white'}`}
                         title="Export Chat"
                     >
                         <DownloadIcon className="w-4 h-4" />
                     </button>
                     <button
                         onClick={(e) => { e.stopPropagation(); onDeleteChat(session.id); }}
-                        className="p-1 rounded text-nexus-gray-400 hover:text-red-400 hover:bg-nexus-gray-600"
+                        className={`p-1 rounded hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 hover:text-red-500 dark:hover:text-red-400 ${selectedChatId === session.id ? 'text-nexus-gray-200' : 'text-nexus-gray-600 dark:text-nexus-gray-400'}`}
                         title="Delete Chat"
                     >
                         <TrashIcon className="w-4 h-4" />

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { AuthScreen } from './components/AuthScreen';
 import { MainLayout } from './components/MainLayout';
@@ -39,7 +38,7 @@ const App: React.FC = () => {
 
   if (!isAuthenticated) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-nexus-dark">
+      <div className="flex items-center justify-center min-h-screen bg-nexus-gray-light-200 dark:bg-nexus-dark">
         <AuthScreen
           isPasswordSet={isPasswordSet}
           onLogin={handleLogin}

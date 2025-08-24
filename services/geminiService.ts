@@ -38,7 +38,7 @@ const fetchWithRetry = async (
             // If we get a rate limit error, wait and retry
             if (response.status === 429) {
                 if (attempt + 1 >= maxRetries) {
-                    // Don't retry on the last attempt, just return the response to be handled by the caller.
+                    logger.warn(`API rate limit exceeded. All ${maxRetries} retries failed. Returning final error response to be handled by caller.`);
                     return response;
                 }
                 const delay = initialDelay * Math.pow(2, attempt) + Math.random() * 1000;
@@ -78,8 +78,12 @@ const streamOpenAIChatResponse = async (
         const messages = [
             { role: "system", content: systemInstruction },
             ...history
-                .filter(msg => msg.role === 'user' || msg.role === 'model')
-                .map(msg => ({ role: msg.role === 'model' ? 'assistant' : 'user', content: msg.content }))
+                .filter(msg => msg.role === 'user' || msg.role === 'model' || msg.role === 'narrator')
+                .map(msg => {
+                    const role = msg.role === 'model' ? 'assistant' : 'user';
+                    const content = msg.role === 'narrator' ? `[NARRATOR]: ${msg.content}` : msg.content;
+                    return { role, content };
+                })
         ];
 
         const response = await fetchWithRetry(config.apiEndpoint!, {
@@ -97,6 +101,19 @@ const streamOpenAIChatResponse = async (
 
         if (!response.ok) {
             const errorBody = await response.text();
+            if (response.status === 429) {
+                let errorMessage = `The API is rate-limiting requests.`;
+                try {
+                    const parsedError = JSON.parse(errorBody);
+                    if (parsedError.message) {
+                        errorMessage += ` Message: ${parsedError.message}`;
+                    }
+                } catch (e) {
+                    errorMessage += ` Details: ${errorBody}`;
+                }
+                logger.error("OpenAI-compatible stream failed due to rate limiting after all retries.", { status: response.status, body: errorBody });
+                throw new Error(errorMessage);
+            }
             throw new Error(`API request failed with status ${response.status}: ${errorBody}`);
         }
 
@@ -172,6 +189,19 @@ const generateOpenAIImage = async (prompt: string, settings: { [key: string]: an
 
     if (!response.ok) {
         const errorBody = await response.text();
+        if (response.status === 429) {
+            let errorMessage = `The API is rate-limiting image generation requests.`;
+            try {
+                const parsedError = JSON.parse(errorBody);
+                if (parsedError.message) {
+                    errorMessage += ` Message: ${parsedError.message}`;
+                }
+            } catch (e) {
+                errorMessage += ` Details: ${errorBody}`;
+            }
+            logger.error("OpenAI-compatible image generation failed due to rate limiting after all retries.", { status: response.status, body: errorBody });
+            throw new Error(errorMessage);
+        }
         throw new Error(`Image generation failed with status ${response.status}: ${errorBody}`);
     }
 
@@ -236,13 +266,16 @@ const streamGeminiChatResponse = async (
 
     const ai = getAiClient(customApiKey);
     
-    // Filter out 'narrator' roles as they are not supported by the Gemini API.
     const contents = history
-        .filter(msg => msg.role === 'user' || msg.role === 'model')
-        .map(msg => ({
-            role: msg.role,
-            parts: [{ text: msg.content }]
-        }));
+        .filter(msg => msg.role === 'user' || msg.role === 'model' || msg.role === 'narrator')
+        .map(msg => {
+            const role = msg.role === 'model' ? 'model' : 'user';
+            const content = msg.role === 'narrator' ? `[NARRATOR]: ${msg.content}` : msg.content;
+            return {
+                role: role,
+                parts: [{ text: content }]
+            };
+        });
 
     try {
         const responseStream = await ai.models.generateContentStream({
@@ -288,10 +321,16 @@ export const streamChatResponse = async (
     character: Character,
     allParticipants: Character[],
     history: Message[],
-    onChunk: (chunk: string) => void
+    onChunk: (chunk: string) => void,
+    systemInstructionOverride?: string
 ): Promise<void> => {
     const config = character.apiConfig || { service: 'default' };
-    const systemInstruction = buildSystemInstruction(character, allParticipants);
+    let systemInstruction = buildSystemInstruction(character, allParticipants);
+
+    if (systemInstructionOverride) {
+        systemInstruction += `\n\n[ADDITIONAL INSTRUCTIONS FOR THIS RESPONSE ONLY]:\n${systemInstructionOverride}`;
+        logger.log("Applying system instruction override for next response.");
+    }
 
     if (config.service === 'openai') {
         logger.log(`Using OpenAI-compatible API for character: ${character.name}`, { endpoint: config.apiEndpoint, model: config.model });

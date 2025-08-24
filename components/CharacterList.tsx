@@ -22,11 +22,11 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 }) => {
   return (
     <div className="flex-1 flex flex-col min-h-0">
-       <div className="flex justify-between items-center mb-2 border-t border-nexus-gray-700 pt-4">
-        <h2 className="text-lg font-semibold text-white">Characters</h2>
+       <div className="flex justify-between items-center mb-2 border-t border-nexus-gray-light-300 dark:border-nexus-gray-700 pt-4">
+        <h2 className="text-lg font-semibold text-nexus-gray-900 dark:text-white">Characters</h2>
         <button
           onClick={onAddNew}
-          className="p-2 rounded-md text-nexus-gray-400 hover:bg-nexus-gray-700 hover:text-white transition-colors"
+          className="p-2 rounded-md text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700 hover:text-nexus-gray-900 dark:hover:text-white transition-colors"
           title="Add New Character"
         >
           <PlusIcon className="w-5 h-5" />
@@ -34,12 +34,12 @@ export const CharacterList: React.FC<CharacterListProps> = ({
       </div>
       <div className="space-y-2 overflow-y-auto pr-2">
         {characters.length === 0 ? (
-           <p className="text-nexus-gray-400 text-sm text-center py-4">No characters yet. Click '+' to create one.</p>
+           <p className="text-nexus-gray-600 dark:text-nexus-gray-400 text-sm text-center py-4">No characters yet. Click '+' to create one.</p>
         ) : (
           characters.map((char) => (
             <div
               key={char.id}
-              className="group flex items-center p-2 rounded-lg bg-nexus-gray-900 hover:bg-nexus-gray-700"
+              className="group flex items-center p-2 rounded-lg bg-nexus-gray-light-100 dark:bg-nexus-gray-900 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700"
             >
               <div className="flex-1 flex items-center min-w-0">
                 <img
@@ -54,21 +54,21 @@ export const CharacterList: React.FC<CharacterListProps> = ({
               <div className="ml-2 flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button
                   onClick={(e) => { e.stopPropagation(); onExportCharacter(char.id); }}
-                  className="p-1 rounded text-nexus-gray-400 hover:text-white hover:bg-nexus-gray-600"
+                  className="p-1 rounded text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600"
                   title="Export Character"
                 >
                   <DownloadIcon className="w-4 h-4" />
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); onEditCharacter(char); }}
-                  className="p-1 rounded text-nexus-gray-400 hover:text-white hover:bg-nexus-gray-600"
+                  className="p-1 rounded text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600"
                   title="Edit Character"
                 >
                   <EditIcon className="w-4 h-4" />
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); onDeleteCharacter(char.id); }}
-                  className="p-1 rounded text-nexus-gray-400 hover:text-red-400 hover:bg-nexus-gray-600"
+                  className="p-1 rounded text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600"
                   title="Delete Character"
                 >
                   <TrashIcon className="w-4 h-4" />

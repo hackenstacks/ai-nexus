@@ -9,6 +9,7 @@ import { PluginManager } from './PluginManager';
 import { LogViewer } from './LogViewer';
 import { HelpModal } from './HelpModal';
 import { ChatSelectionModal } from './ChatSelectionModal';
+import { ThemeSwitcher } from './ThemeSwitcher';
 import { PluginSandbox } from '../services/pluginSandbox';
 import * as geminiService from '../services/geminiService';
 import * as compatibilityService from '../services/compatibilityService';
@@ -62,6 +63,26 @@ nexus.log('Image Generation plugin loaded.');
     }
 };
 
+const defaultTtsPlugin: Plugin = {
+    id: 'default-tts-narrator',
+    name: 'Text-to-Speech (TTS)',
+    description: 'Enables text-to-speech functionality in the chat interface. Note: This plugin is a placeholder as TTS is now a core feature and cannot be disabled.',
+    enabled: true,
+    code: `
+// Text-to-Speech (TTS) is now a core feature of AI Nexus.
+// The UI for TTS (speaker icons on messages, etc.) is built directly into the app.
+// This approach is necessary because plugins run in a secure sandbox
+// and cannot directly manipulate the application's user interface (DOM).
+
+// This plugin remains to ensure users are aware the feature is active.
+// It does not contain any executable hooks.
+
+nexus.log('TTS Plugin loaded (Core Feature).');
+`,
+    settings: {}
+};
+
+
 type View = 'chat' | 'form' | 'plugins';
 
 export const MainLayout: React.FC = () => {
@@ -112,21 +133,27 @@ export const MainLayout: React.FC = () => {
                 logger.log("New user master key pair generated.");
             }
             
-            let hasDefaultPlugin = data.plugins && data.plugins.some(p => p.id === defaultImagePlugin.id);
-            if (!hasDefaultPlugin) {
-                if (!data.plugins) data.plugins = [];
-                data.plugins.push(defaultImagePlugin);
-                logger.log("Default image generation plugin injected.");
-                dataNeedsSave = true;
-            } else {
-                data.plugins = data.plugins.map(p => {
-                    if (p.id === defaultImagePlugin.id && !p.settings) {
-                        dataNeedsSave = true;
-                        return { ...p, settings: defaultImagePlugin.settings };
-                    }
-                    return p;
-                });
-            }
+            const defaultPlugins = [defaultImagePlugin, defaultTtsPlugin];
+            if (!data.plugins) data.plugins = [];
+
+            defaultPlugins.forEach(defaultPlugin => {
+                let hasPlugin = data.plugins.some(p => p.id === defaultPlugin.id);
+                if (!hasPlugin) {
+                    data.plugins.push(defaultPlugin);
+                    logger.log(`Default plugin injected: ${defaultPlugin.name}`);
+                    dataNeedsSave = true;
+                } else {
+                    // Ensure settings exist on existing default plugins
+                    data.plugins = data.plugins.map(p => {
+                        if (p.id === defaultPlugin.id && !p.settings) {
+                            dataNeedsSave = true;
+                            return { ...p, settings: defaultPlugin.settings };
+                        }
+                        return p;
+                    });
+                }
+            });
+
 
             if (dataNeedsSave) {
                 await persistData(data);
@@ -536,8 +563,8 @@ export const MainLayout: React.FC = () => {
                         onMemoryImport={handleMemoryImport}
                     />
                 ) : (
-                    <div className="flex-1 flex items-center justify-center">
-                        <div className="text-center text-nexus-gray-500">
+                    <div className="flex-1 flex items-center justify-center bg-nexus-gray-light-200 dark:bg-nexus-gray-900">
+                        <div className="text-center text-nexus-gray-700 dark:text-nexus-gray-500">
                             <h2 className="text-2xl">Welcome to AI Nexus</h2>
                             <p>Create a character and start a new chat to begin.</p>
                         </div>
@@ -547,19 +574,20 @@ export const MainLayout: React.FC = () => {
     }
 
     return (
-        <div className="flex h-screen bg-nexus-dark text-nexus-gray-200 font-sans">
+        <div className="flex h-screen bg-nexus-light dark:bg-nexus-dark text-nexus-gray-900 dark:text-nexus-gray-200 font-sans">
             {isLogViewerVisible && <LogViewer onClose={() => setIsLogViewerVisible(false)} />}
             {isHelpVisible && <HelpModal onClose={() => setIsHelpVisible(false)} />}
             {isChatModalVisible && <ChatSelectionModal characters={appData.characters} onClose={() => setIsChatModalVisible(false)} onCreateChat={handleCreateChat}/>}
             
-            <aside className="w-80 bg-nexus-gray-800 flex flex-col p-4 border-r border-nexus-gray-700">
+            <aside className="w-80 bg-nexus-gray-light-200 dark:bg-nexus-gray-800 flex flex-col p-4 border-r border-nexus-gray-light-300 dark:border-nexus-gray-700">
                 <div className="flex items-center justify-between mb-4">
-                    <h1 className="text-2xl font-bold text-white">AI Nexus</h1>
+                    <h1 className="text-2xl font-bold text-nexus-gray-900 dark:text-white">AI Nexus</h1>
+                    <ThemeSwitcher />
                 </div>
 
                 <div className="flex justify-between items-center mb-2">
-                    <h2 className="text-lg font-semibold text-white">Chats</h2>
-                    <button onClick={() => setIsChatModalVisible(true)} className="p-2 rounded-md text-nexus-gray-400 hover:bg-nexus-gray-700 hover:text-white transition-colors" title="New Chat">
+                    <h2 className="text-lg font-semibold text-nexus-gray-900 dark:text-white">Chats</h2>
+                    <button onClick={() => setIsChatModalVisible(true)} className="p-2 rounded-md text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700 hover:text-nexus-gray-900 dark:hover:text-white transition-colors" title="New Chat">
                         <PlusIcon className="w-5 h-5" />
                     </button>
                 </div>
@@ -582,25 +610,25 @@ export const MainLayout: React.FC = () => {
                     />
                 </div>
 
-                <div className="mt-auto pt-4 border-t border-nexus-gray-700 grid grid-cols-2 gap-2">
+                <div className="mt-auto pt-4 border-t border-nexus-gray-light-300 dark:border-nexus-gray-700 grid grid-cols-2 gap-2">
                     <input type="file" ref={fileInputRef} onChange={handleImportData} accept=".json" className="hidden" />
-                    <button onClick={() => fileInputRef.current?.click()} title="Import Character, Chat, or Backup" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
+                    <button onClick={() => fileInputRef.current?.click()} title="Import Character, Chat, or Backup" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors">
                         <UploadIcon className="w-4 h-4" />
                         <span>Import</span>
                     </button>
-                    <button onClick={handleExportBackup} title="Export Full Backup" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
+                    <button onClick={handleExportBackup} title="Export Full Backup" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors">
                         <DownloadIcon className="w-4 h-4" />
                         <span>Export Backup</span>
                     </button>
-                    <button onClick={() => setView('plugins')} title="Manage Plugins" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
+                    <button onClick={() => setView('plugins')} title="Manage Plugins" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors">
                         <CodeIcon className="w-4 h-4" />
                         <span>Plugins</span>
                     </button>
-                     <button onClick={() => setIsLogViewerVisible(true)} title="View Application Logs" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
+                     <button onClick={() => setIsLogViewerVisible(true)} title="View Application Logs" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors">
                         <TerminalIcon className="w-4 h-4" />
                         <span>Logs</span>
                     </button>
-                    <button onClick={() => setIsHelpVisible(true)} title="Open Help Center" className="col-span-2 flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-700 hover:bg-nexus-gray-600 transition-colors">
+                    <button onClick={() => setIsHelpVisible(true)} title="Open Help Center" className="col-span-2 flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors">
                         <HelpIcon className="w-4 h-4" />
                         <span>Help</span>
                     </button>
