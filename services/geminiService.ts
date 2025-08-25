@@ -84,25 +84,55 @@ const streamOpenAIChatResponse = async (
     onChunk: (chunk: string) => void
 ): Promise<void> => {
     try {
+        const mappedMessages = history
+            .filter(msg => msg.role === 'user' || msg.role === 'model' || msg.role === 'narrator')
+            .map(msg => {
+                const role = msg.role === 'model' ? 'assistant' : 'user';
+                const content = msg.role === 'narrator' ? `[NARRATOR]: ${msg.content}` : msg.content;
+                return { role, content };
+            });
+
+        // Defensive merging: OpenAI-compatible APIs require strict user/assistant alternation.
+        // This prevents errors if the history accidentally contains two 'assistant' roles in a row.
+        const mergedMessages = [];
+        if (mappedMessages.length > 0) {
+            mergedMessages.push(mappedMessages[0]);
+            for (let i = 1; i < mappedMessages.length; i++) {
+                const prev = mergedMessages[mergedMessages.length - 1];
+                const curr = mappedMessages[i];
+                if (prev.role === curr.role) {
+                    prev.content += `\n\n${curr.content}`; // Merge content
+                } else {
+                    mergedMessages.push(curr);
+                }
+            }
+        }
+        
+        // Final check for OpenAI compatibility: the last message must not be from the assistant.
+        // If it is, this is an AI-to-AI turn, and we coerce the last assistant message
+        // into a user message for the API to accept it.
+        if (mergedMessages.length > 0 && mergedMessages[mergedMessages.length - 1].role === 'assistant') {
+            if (mergedMessages.length > 1) {
+                mergedMessages[mergedMessages.length - 1].role = 'user';
+            } else {
+                logger.warn("OpenAI stream called with a history containing only a single assistant message. This will likely fail.");
+            }
+        }
+
         const messages = [
             { role: "system", content: systemInstruction },
-            ...history
-                .filter(msg => msg.role === 'user' || msg.role === 'model' || msg.role === 'narrator')
-                .map(msg => {
-                    const role = msg.role === 'model' ? 'assistant' : 'user';
-                    const content = msg.role === 'narrator' ? `[NARRATOR]: ${msg.content}` : msg.content;
-                    return { role, content };
-                })
+            ...mergedMessages
         ];
 
-        const response = await fetchWithRetry(config.apiEndpoint!, {
+
+        const response = await fetchWithRetry((config.apiEndpoint || '').trim(), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.apiKey || 'ollama'}`,
+                'Authorization': `Bearer ${config.apiKey?.trim() || 'ollama'}`,
             },
             body: JSON.stringify({
-                model: config.model || 'default',
+                model: config.model?.trim() || 'default',
                 messages: messages,
                 stream: true,
             }),
@@ -181,15 +211,15 @@ const generateOpenAIImage = async (prompt: string, settings: { [key: string]: an
     const fullPrompt = buildImagePrompt(prompt, settings);
     logger.log("Generating OpenAI image with full prompt:", { fullPrompt });
 
-    const response = await fetchWithRetry(settings.apiEndpoint, {
+    const response = await fetchWithRetry((settings.apiEndpoint || '').trim(), {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${settings.apiKey || 'ollama'}`,
+            'Authorization': `Bearer ${settings.apiKey?.trim() || 'ollama'}`,
         },
         body: JSON.stringify({
             prompt: fullPrompt,
-            model: settings.model || 'dall-e-3',
+            model: settings.model?.trim() || 'dall-e-3',
             n: 1,
             size: "1024x1024",
             response_format: "b64_json",
@@ -396,19 +426,18 @@ export const generateImageFromPrompt = async (prompt: string, settings?: { [key:
             if (!settings?.apiEndpoint) {
                 throw new Error("OpenAI-compatible API endpoint is not configured for the image generator plugin.");
             }
-            // The endpoint for image generation is often different from chat, e.g. /v1/images/generations
-            const endpoint = settings.apiEndpoint.endsWith('/v1/images/generations') 
-                ? settings.apiEndpoint 
-                : `${settings.apiEndpoint.replace(/\/$/, '')}/v1/images/generations`;
-
-            return await generateOpenAIImage(prompt, { ...settings, apiEndpoint: endpoint });
+            // The user provides the full, correct endpoint in the plugin settings.
+            // We no longer manipulate the URL here.
+            return await generateOpenAIImage(prompt, settings);
         } else {
             logger.log("Using Gemini API for image generation.");
             return await generateGeminiImage(prompt, settings || {});
         }
     } catch (error) {
         logger.error("Error in generateImageFromPrompt:", error);
-        throw error;
+        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
+        // Provide a more user-friendly error message.
+        throw new Error(`Image generation failed. Please check the plugin settings (API key, endpoint) and logs. Details: ${errorMessage}`);
     }
 };
 

@@ -109,11 +109,15 @@ export const MainLayout: React.FC = () => {
             case 'generateContent':
                 return await geminiService.generateContent(request.prompt);
             case 'generateImage':
-                return await geminiService.generateImageFromPrompt(request.prompt, request.settings);
+                // The image generation plugin now has its own complete settings object.
+                // We pass this directly to the service.
+                const imagePlugin = appData.plugins?.find(p => p.id === 'default-image-generator');
+                const settings = { ...imagePlugin?.settings, ...request.settings };
+                return await geminiService.generateImageFromPrompt(request.prompt, settings);
             default:
                 throw new Error('Unknown API request type from plugin.');
         }
-    }, []);
+    }, [appData.plugins]);
 
     useEffect(() => {
         const loadInitialData = async () => {
@@ -244,7 +248,7 @@ export const MainLayout: React.FC = () => {
         setEditingCharacter(null);
     };
     
-    const handleCharacterUpdate = (character: Character) => {
+    const handleCharacterUpdate = useCallback((character: Character) => {
         setAppData(prevAppData => {
             const updatedCharacters = prevAppData.characters.map(c => c.id === character.id ? character : c);
             const updatedData = { ...prevAppData, characters: updatedCharacters };
@@ -252,7 +256,7 @@ export const MainLayout: React.FC = () => {
             logger.log(`Character data updated programmatically: ${character.name}`);
             return updatedData;
         });
-    };
+    }, [persistData]);
 
     const handleDeleteCharacter = (characterId: string) => {
         if (window.confirm('Are you sure you want to delete this character? All chats involving this character will also be deleted.')) {
@@ -316,26 +320,18 @@ export const MainLayout: React.FC = () => {
         setEditingCharacter(null);
     };
 
-    const handleSessionUpdate = (session: ChatSession) => {
+    const handleSessionUpdate = useCallback((session: ChatSession) => {
         setAppData(prevAppData => {
-            let sessionExists = false;
-            const updatedSessions = prevAppData.chatSessions.map(s => {
-                if (s.id === session.id) {
-                    sessionExists = true;
-                    return session;
-                }
-                return s;
-            });
-    
-            if (!sessionExists) {
-                updatedSessions.push(session);
-            }
+            const sessionExists = prevAppData.chatSessions.some(s => s.id === session.id);
+            const updatedSessions = sessionExists
+                ? prevAppData.chatSessions.map(s => s.id === session.id ? session : s)
+                : [...prevAppData.chatSessions, session];
     
             const updatedData = { ...prevAppData, chatSessions: updatedSessions };
             persistData(updatedData);
             return updatedData;
         });
-    };
+    }, [persistData]);
 
     const triggerDownload = (filename: string, data: object) => {
         const jsonString = JSON.stringify(data, null, 2);
@@ -525,6 +521,7 @@ export const MainLayout: React.FC = () => {
         let processedData: any = data;
         const enabledPlugins = appData.plugins?.filter(p => p.enabled) || [];
 
+        // Special handling for image generation to inject its settings
         if (hookName === 'generateImage') {
             const imagePlugin = appData.plugins?.find(p => p.id === 'default-image-generator');
             processedData = { ...processedData, settings: imagePlugin?.settings || {} };

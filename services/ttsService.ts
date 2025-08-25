@@ -3,38 +3,48 @@ import { logger } from './loggingService';
 let voices: SpeechSynthesisVoice[] = [];
 let voicesPromise: Promise<SpeechSynthesisVoice[]> | null = null;
 
+let utteranceQueue: SpeechSynthesisUtterance[] = [];
+let isCurrentlySpeaking = false;
+
 const loadVoices = (): Promise<SpeechSynthesisVoice[]> => {
   return new Promise((resolve) => {
-    const getAndResolve = () => {
+    let pollingInterval: number | undefined;
+
+    const checkVoices = () => {
+      if (voices.length > 0) return true;
+      
       const voiceList = window.speechSynthesis.getVoices();
       if (voiceList.length > 0) {
         voices = voiceList.sort((a, b) => a.name.localeCompare(b.name));
-        // Ensure the event listener is removed once voices are loaded.
+        logger.log(`TTS voices loaded: ${voices.length} found.`);
+        
         window.speechSynthesis.onvoiceschanged = null;
+        if (pollingInterval) clearInterval(pollingInterval);
         resolve(voices);
         return true;
       }
       return false;
     };
-
-    if (getAndResolve()) {
-      return;
-    }
     
-    window.speechSynthesis.onvoiceschanged = getAndResolve;
+    if (checkVoices()) return;
+    
+    window.speechSynthesis.onvoiceschanged = checkVoices;
+    pollingInterval = window.setInterval(checkVoices, 500);
+
+    setTimeout(() => {
+        if (voices.length === 0) {
+            clearInterval(pollingInterval);
+            window.speechSynthesis.onvoiceschanged = null;
+            logger.warn("TTS voices did not load after timeout. TTS may be unavailable.");
+            resolve(voices);
+        }
+    }, 5000);
   });
 };
 
 export const getVoices = (): Promise<SpeechSynthesisVoice[]> => {
-  if (!isSupported()) {
-    return Promise.resolve([]);
-  }
-  if (voices.length > 0) {
-    return Promise.resolve(voices);
-  }
-  if (!voicesPromise) {
-    voicesPromise = loadVoices();
-  }
+  if (!isSupported()) return Promise.resolve([]);
+  if (!voicesPromise) voicesPromise = loadVoices();
   return voicesPromise;
 };
 
@@ -42,30 +52,57 @@ export const isSupported = (): boolean => {
     return 'speechSynthesis' in window && window.speechSynthesis !== null;
 };
 
-export const speak = async (text: string, voiceURI?: string) => {
-    if (!isSupported() || !text) return;
+const processUtteranceQueue = () => {
+    if (utteranceQueue.length === 0 || isCurrentlySpeaking || !isSupported()) {
+        return;
+    }
+
+    isCurrentlySpeaking = true;
+    const utterance = utteranceQueue.shift()!;
     
+    utterance.onend = () => {
+        isCurrentlySpeaking = false;
+        processUtteranceQueue();
+    };
+
+    utterance.onerror = (event) => {
+        logger.error('TTS Utterance Error:', event.error || 'synthesis-failed');
+        isCurrentlySpeaking = false;
+        processUtteranceQueue(); // Skip the failed utterance and try the next one
+    };
+
+    window.speechSynthesis.speak(utterance);
+};
+
+export const speak = async (text: string, voiceURI?: string) => {
+    if (!isSupported() || !text?.trim()) return;
+
+    // A fresh call to speak should interrupt the old queue.
+    cancel();
+
     try {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        
-        if (voiceURI) {
-            const availableVoices = await getVoices();
-            if (availableVoices.length > 0) {
-                const selectedVoice = availableVoices.find(v => v.voiceURI === voiceURI);
-                if (selectedVoice) {
-                    utterance.voice = selectedVoice;
-                } else {
-                    logger.warn(`TTS voice not found for URI: ${voiceURI}. Using default.`);
-                }
-            }
+        const availableVoices = await getVoices();
+        const selectedVoice = voiceURI ? availableVoices.find(v => v.voiceURI === voiceURI) : undefined;
+        if (voiceURI && !selectedVoice) {
+            logger.warn(`TTS voice not found for URI: ${voiceURI}. Using default.`);
         }
         
-        utterance.onerror = (event) => {
-            logger.error('TTS Utterance Error:', event.error);
-        };
-        
-        window.speechSynthesis.speak(utterance);
+        // Chunk the text into sentences to avoid hitting character limits of TTS engines.
+        const sentences = text.match(/[^.!?]+[.!?]*|[^.!?]+$/g) || [];
+
+        utteranceQueue = sentences
+            .map(s => s.trim())
+            .filter(s => s.length > 0)
+            .map(sentence => {
+                const utterance = new SpeechSynthesisUtterance(sentence);
+                if (selectedVoice) {
+                    utterance.voice = selectedVoice;
+                }
+                return utterance;
+            });
+
+        processUtteranceQueue();
+
     } catch (error) {
         logger.error('Failed to initiate TTS speak.', error);
     }
@@ -73,10 +110,15 @@ export const speak = async (text: string, voiceURI?: string) => {
 
 export const cancel = () => {
     if (isSupported()) {
-        window.speechSynthesis.cancel();
+        utteranceQueue = [];
+        isCurrentlySpeaking = false;
+        if (window.speechSynthesis.speaking) {
+            window.speechSynthesis.cancel();
+        }
     }
 };
 
+// Pre-warm the voices cache to start the loading process early.
 if (isSupported()) {
     getVoices();
 }

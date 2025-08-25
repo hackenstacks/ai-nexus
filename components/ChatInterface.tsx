@@ -112,20 +112,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   }, []);
 
-  const updateSession = useCallback((newSession: ChatSession) => {
+  const updateSession = useCallback((updater: (session: ChatSession) => ChatSession) => {
+    const newSession = updater(currentSessionRef.current);
     setCurrentSession(newSession);
-    currentSessionRef.current = newSession;
     onSessionUpdate(newSession);
   }, [onSessionUpdate]);
 
   const addMessage = useCallback((message: Message) => {
-    setCurrentSession(prevSession => {
-      const updatedSession = { ...prevSession, messages: [...prevSession.messages, message] };
-      currentSessionRef.current = updatedSession;
-      onSessionUpdate(updatedSession);
-      return updatedSession;
-    });
-  }, [onSessionUpdate]);
+    updateSession(prevSession => ({ ...prevSession, messages: [...prevSession.messages, message] }));
+  }, [updateSession]);
 
   const addSystemMessage = useCallback((content: string) => {
     const systemMessage: Message = {
@@ -150,7 +145,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         characterId: character.id
     };
     
-    updateSession({ ...currentSessionRef.current, messages: [...history, modelPlaceholder] });
+    updateSession(current => ({ ...current, messages: [...history, modelPlaceholder] }));
 
     let fullResponse = '';
     
@@ -161,14 +156,18 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             history,
             (chunk) => {
                 fullResponse += chunk;
-                setCurrentSession(current => {
-                    const updatedSession = {
-                        ...current,
-                        messages: current.messages.map(msg => msg.timestamp === modelPlaceholder.timestamp ? { ...msg, content: fullResponse } : msg),
-                    };
-                    currentSessionRef.current = updatedSession;
-                    return updatedSession;
-                });
+                // Use a ref here to prevent re-rendering on every chunk, which can be slow.
+                // The final update will trigger the full render. This is an optimization.
+                const messages = currentSessionRef.current.messages;
+                const lastMessage = messages[messages.length - 1];
+                if(lastMessage && lastMessage.timestamp === modelPlaceholder.timestamp) {
+                    lastMessage.content = fullResponse;
+                    // We directly update the DOM for performance during streaming
+                    const msgElement = document.getElementById(modelPlaceholder.timestamp);
+                    if (msgElement) {
+                       msgElement.innerHTML = fullResponse.replace(/\n/g, '<br>');
+                    }
+                }
             },
             override
         );
@@ -198,17 +197,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             ttsService.speak(fullResponse, character.voiceURI);
         }
         
-        setCurrentSession(current => {
+        updateSession(current => {
             const updatedMessages = current.messages.map(msg =>
                 msg.timestamp === modelPlaceholder.timestamp ? finalMessage : msg
             );
-            const finalSession = { ...current, messages: updatedMessages };
-            currentSessionRef.current = finalSession;
-            onSessionUpdate(finalSession);
-            return finalSession;
+            return { ...current, messages: updatedMessages };
         });
     }
-  }, [participants, isTtsEnabled, onSessionUpdate, addSystemMessage, updateSession]);
+  }, [participants, isTtsEnabled, updateSession, addSystemMessage]);
 
   const continueAutoConversation = useCallback(async () => {
     if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);
@@ -236,9 +232,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         timestamp: new Date().toISOString()
     };
     const updatedMessages = [...currentSessionRef.current.messages, starterMessage];
-    updateSession({ ...currentSessionRef.current, messages: updatedMessages });
-
-    await new Promise(resolve => setTimeout(resolve, 50));
+    updateSession(current => ({...current, messages: updatedMessages}));
     
     const firstSpeaker = participants[nextSpeakerIndex.current % participants.length];
     nextSpeakerIndex.current += 1;
@@ -264,7 +258,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             break;
         }
         case 'save': {
-            const history = currentSession.messages.slice(-10);
+            const history = currentSessionRef.current.messages.slice(-10);
             if (history.length === 0) {
                 addSystemMessage("Not enough conversation history to save a memory.");
                 return;
@@ -308,14 +302,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             nextSpeakerIndex.current = targetIndex;
 
             const userMessage = await createUserMessage(prompt);
-            const newHistory = [...currentSession.messages, userMessage];
+            const newHistory = [...currentSessionRef.current.messages, userMessage];
             addMessage(userMessage);
 
             await triggerAIResponse(target, newHistory);
             break;
         }
         case 'converse': {
-            if (isAutoConversing) {
+            if (isAutoConversingRef.current) {
                 addSystemMessage("A conversation is already in progress. Use /end or /quit to stop it first.");
                 return;
             }
@@ -330,7 +324,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
         case 'quit':
         case 'end': {
-            if (isAutoConversing) {
+            if (isAutoConversingRef.current) {
                 if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);
                 setIsAutoConversing(false);
                 addSystemMessage("AI conversation ended by user.");
@@ -362,22 +356,24 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   
   const handleSendMessage = useCallback(async () => {
     const trimmedInput = input.trim();
-    if (!trimmedInput || isStreaming) return;
+    if (!trimmedInput) return;
+    
+    // If an AI is talking in a non-auto-conversation, block sending.
+    if (isStreaming && !isAutoConversingRef.current) return;
 
     if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);
-    if (isAutoConversing) {
+    if (isAutoConversingRef.current) {
         setIsAutoConversing(false);
         addSystemMessage("AI conversation stopped by user message.");
     }
     
     if (trimmedInput.startsWith('/')) {
-        const [command, ...args] = trimmedInput.substring(1).split(' ');
-        handleCommand(command, args.join(' '));
+        handleCommand(trimmedInput.substring(1).split(' ')[0], trimmedInput.substring(1).split(' ').slice(1).join(' '));
         return;
     }
 
     const userMessage = await createUserMessage(trimmedInput);
-    const newHistory = [...currentSession.messages, userMessage];
+    const newHistory = [...currentSessionRef.current.messages, userMessage];
     addMessage(userMessage);
     setInput('');
 
@@ -390,7 +386,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
     }
 
-  }, [input, isStreaming, isAutoConversing, participants, currentSession.messages, addMessage, addSystemMessage, triggerAIResponse, userKeys, handleCommand]);
+  }, [input, isStreaming, participants, addMessage, addSystemMessage, triggerAIResponse, userKeys, handleCommand]);
   
   const handleImageGeneration = async (prompt: string, type: 'direct' | 'summary') => {
       const attachmentMessage: Message = {
@@ -409,14 +405,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         const result = await onTriggerHook<{type: string, value: string}, {url?: string, error?: string}>('generateImage', payload);
 
         if (result.url) {
-            setCurrentSession(curr => {
+            updateSession(curr => {
                 const updatedMessages = curr.messages.map((m): Message => m.timestamp === attachmentMessage.timestamp 
                     ? { ...m, content: '', attachment: { ...m.attachment!, status: 'done', url: result.url } }
                     : m
                 );
-                const updatedSession = { ...curr, messages: updatedMessages };
-                onSessionUpdate(updatedSession);
-                return updatedSession;
+                return { ...curr, messages: updatedMessages };
             });
         } else {
             throw new Error(result.error || 'Image generation failed with no message.');
@@ -424,14 +418,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       } catch (error) {
            const errorMessage = error instanceof Error ? error.message : String(error);
            logger.error('Image generation failed:', error);
-           setCurrentSession(curr => {
+           updateSession(curr => {
                 const updatedMessages = curr.messages.map((m): Message => m.timestamp === attachmentMessage.timestamp 
                     ? { ...m, content: `Image generation failed: ${errorMessage}`, attachment: { ...m.attachment!, status: 'error' } }
                     : m
                 );
-                const updatedSession = { ...curr, messages: updatedMessages };
-                onSessionUpdate(updatedSession);
-                return updatedSession;
+                return { ...curr, messages: updatedMessages };
             });
       }
   };
@@ -457,15 +449,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         finalPrompt,
         (chunk) => {
             fullResponse += chunk;
-            setCurrentSession(curr => ({
-                ...curr,
-                messages: curr.messages.map(m => m.timestamp === narratorPlaceholder.timestamp ? {...m, content: fullResponse} : m)
-            }));
+            const msgElement = document.getElementById(narratorPlaceholder.timestamp);
+            if (msgElement) {
+                msgElement.innerHTML = fullResponse.replace(/\n/g, '<br>');
+            }
         }
     );
-     setCurrentSession(curr => {
+     updateSession(curr => {
         const finalMessages = curr.messages.map(m => m.timestamp === narratorPlaceholder.timestamp ? {...m, content: fullResponse} : m);
-        onSessionUpdate({ ...curr, messages: finalMessages });
         return { ...curr, messages: finalMessages };
     });
   };
@@ -474,7 +465,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     if (imageClickTimeout.current) { // Double click
       clearTimeout(imageClickTimeout.current);
       imageClickTimeout.current = null;
-      const context = currentSession.messages.slice(-5).map(m => `${m.role}: ${m.content}`).join('\n');
+      const context = currentSessionRef.current.messages.slice(-5).map(m => `${m.role}: ${m.content}`).join('\n');
       handleImageGeneration(context, 'summary');
     } else { // Single click
       imageClickTimeout.current = window.setTimeout(() => {
@@ -489,7 +480,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     if (narratorClickTimeout.current) { // Double click
       clearTimeout(narratorClickTimeout.current);
       narratorClickTimeout.current = null;
-      const context = currentSession.messages.slice(-5).map(m => `${m.role}: ${m.content}`).join('\n');
+      const context = currentSessionRef.current.messages.slice(-5).map(m => `${m.role}: ${m.content}`).join('\n');
       handleNarration(context, 'summary');
     } else { // Single click
       narratorClickTimeout.current = window.setTimeout(() => {
@@ -508,12 +499,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             case 'error': return null; // Error message is rendered in the main content
         }
     }
-    return message.content.split('\n').map((line, index) => (
-        <React.Fragment key={index}>{line}<br /></React.Fragment>
-    ));
+    // Using an ID allows us to update the content via JS for performance during streaming
+    return <span id={message.timestamp} dangerouslySetInnerHTML={{ __html: message.content.replace(/\n/g, '<br />') }} />;
   };
   
   const getCharacterById = (id: string) => allCharacters.find(c => c.id === id);
+
+  const isInputDisabled = isStreaming && !isAutoConversing;
 
   return (
     <div className="flex flex-col h-full bg-nexus-gray-light-200 dark:bg-nexus-gray-900">
@@ -560,7 +552,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             if (msg.role === 'narrator') {
               return (
                 <div key={index} className="text-center my-2 group relative">
-                  <p className="text-sm text-nexus-gray-700 dark:text-nexus-gray-400 italic px-4">{renderMessageContent(msg)}</p>
+                  <p id={msg.timestamp} className="text-sm text-nexus-gray-700 dark:text-nexus-gray-400 italic px-4">{renderMessageContent(msg)}</p>
                   <div className="absolute top-1/2 -translate-y-1/2 right-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
                      <button onClick={() => ttsService.speak(msg.content)} title="Read Aloud" className="p-1 rounded-full text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600">
                         <SpeakerIcon className="w-4 h-4" />
@@ -612,18 +604,18 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             placeholder={isAutoConversing ? "AI conversation in progress... (/end to stop)" : `Message ${session.name}... (/converse)`}
             className="flex-1 bg-transparent resize-none focus:outline-none px-2 text-nexus-gray-900 dark:text-white"
             rows={1}
-            disabled={isStreaming}
+            disabled={isInputDisabled}
           />
-          <button onClick={() => setIsMemoryModalVisible(true)} title="Import Memory From Another Chat" className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white disabled:opacity-50" disabled={isStreaming}>
+          <button onClick={() => setIsMemoryModalVisible(true)} title="Import Memory From Another Chat" className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white disabled:opacity-50" disabled={isInputDisabled}>
             <BrainIcon className="w-6 h-6" />
           </button>
-          <button onClick={handleNarratorButtonClick} title="Narrate (Single-click for prompt, double-click for auto)" className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white disabled:opacity-50" disabled={isStreaming}>
+          <button onClick={handleNarratorButtonClick} title="Narrate (Single-click for prompt, double-click for auto)" className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white disabled:opacity-50" disabled={isInputDisabled}>
             <BookIcon className="w-6 h-6" />
           </button>
-          <button onClick={handleImageButtonClick} title="Generate Image (Single-click for prompt, double-click for auto)" className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white disabled:opacity-50" disabled={isStreaming}>
+          <button onClick={handleImageButtonClick} title="Generate Image (Single-click for prompt, double-click for auto)" className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white disabled:opacity-50" disabled={isInputDisabled}>
             <ImageIcon className="w-6 h-6" />
           </button>
-          <button onClick={handleSendMessage} disabled={!input.trim() || isStreaming} className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white disabled:opacity-50" title="Send message">
+          <button onClick={handleSendMessage} disabled={!input.trim() || isInputDisabled} className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white disabled:opacity-50" title="Send message">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" /></svg>
           </button>
         </div>
