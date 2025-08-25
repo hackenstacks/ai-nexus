@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Character, ApiConfig } from '../types';
+import * as ttsService from '../services/ttsService';
 
 interface CharacterFormProps {
   character: Character | null;
@@ -38,7 +39,18 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
   const [personalityTraits, setPersonalityTraits] = useState('');
   const [lore, setLore] = useState<string[]>([]);
   const [memory, setMemory] = useState('');
+  const [voiceURI, setVoiceURI] = useState('');
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
 
+  useEffect(() => {
+    if (ttsService.isSupported()) {
+        ttsService.getVoices().then(availableVoices => {
+            if (availableVoices.length > 0) {
+                setVoices(availableVoices);
+            }
+        });
+    }
+  }, []);
 
   useEffect(() => {
     if (character) {
@@ -52,6 +64,7 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
       setPersonalityTraits(character.personalityTraits || '');
       setLore(character.lore || []);
       setMemory(character.memory || 'No memories yet.');
+      setVoiceURI(character.voiceURI || '');
     } else {
         setName('');
         setDescription('');
@@ -63,6 +76,7 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
         setPersonalityTraits('');
         setLore([]);
         setMemory('No memories yet.');
+        setVoiceURI('');
     }
   }, [character]);
 
@@ -86,6 +100,7 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
       personalityTraits,
       lore,
       memory: character?.memory || '',
+      voiceURI,
       apiConfig: {
         ...apiConfig,
         apiKey: apiConfig.apiKey?.trim(),
@@ -183,6 +198,24 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
                 placeholder="Comma-separated traits, e.g., witty, sarcastic, kind, curious"
               />
             </div>
+            {voices.length > 0 && (
+              <div>
+                <label htmlFor="voice" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Voice</label>
+                <select
+                  id="voice"
+                  value={voiceURI}
+                  onChange={(e) => setVoiceURI(e.target.value)}
+                  className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                >
+                  <option value="">Default Voice</option>
+                  {voices.map(voice => (
+                    <option key={voice.voiceURI} value={voice.voiceURI}>
+                      {`${voice.name} (${voice.lang})`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
              <div>
               <label htmlFor="personality" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Role Instruction / System Prompt</label>
               <textarea

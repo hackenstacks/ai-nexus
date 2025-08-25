@@ -4,18 +4,24 @@ import { logger } from "./loggingService";
 
 // --- Gemini Client Setup ---
 const API_KEY = process.env.API_KEY;
-if (!API_KEY) {
+let defaultAi: GoogleGenAI | null = null;
+
+if (API_KEY) {
+  defaultAi = new GoogleGenAI({ apiKey: API_KEY });
+} else {
   const errorMsg = "API_KEY environment variable not set. The application will not be able to connect to the Gemini API by default.";
-  logger.error(errorMsg);
+  logger.warn(errorMsg);
 }
-const defaultAi = new GoogleGenAI({ apiKey: API_KEY! });
 
 const getAiClient = (apiKey?: string): GoogleGenAI => {
     if (apiKey) {
         logger.debug("Creating a new Gemini client with a custom API key.");
         return new GoogleGenAI({ apiKey });
     }
-    return defaultAi;
+    if (defaultAi) {
+        return defaultAi;
+    }
+    throw new Error("Default Gemini API key not configured. Please set a custom API key for the character or plugin.");
 }
 
 // --- OpenAI Compatible Service ---
@@ -259,25 +265,25 @@ const streamGeminiChatResponse = async (
     history: Message[],
     onChunk: (chunk: string) => void
 ): Promise<void> => {
-    const customApiKey = character.apiConfig?.service === 'gemini' ? character.apiConfig.apiKey : undefined;
-     if (customApiKey) {
-        logger.log(`Using custom Gemini API key for character: ${character.name}`);
-    }
-
-    const ai = getAiClient(customApiKey);
-    
-    const contents = history
-        .filter(msg => msg.role === 'user' || msg.role === 'model' || msg.role === 'narrator')
-        .map(msg => {
-            const role = msg.role === 'model' ? 'model' : 'user';
-            const content = msg.role === 'narrator' ? `[NARRATOR]: ${msg.content}` : msg.content;
-            return {
-                role: role,
-                parts: [{ text: content }]
-            };
-        });
-
     try {
+        const customApiKey = character.apiConfig?.service === 'gemini' ? character.apiConfig.apiKey : undefined;
+        if (customApiKey) {
+            logger.log(`Using custom Gemini API key for character: ${character.name}`);
+        }
+
+        const ai = getAiClient(customApiKey);
+        
+        const contents = history
+            .filter(msg => msg.role === 'user' || msg.role === 'model' || msg.role === 'narrator')
+            .map(msg => {
+                const role = msg.role === 'model' ? 'model' : 'user';
+                const content = msg.role === 'narrator' ? `[NARRATOR]: ${msg.content}` : msg.content;
+                return {
+                    role: role,
+                    parts: [{ text: content }]
+                };
+            });
+
         const responseStream = await ai.models.generateContentStream({
             model: 'gemini-2.5-flash',
             contents: contents,
@@ -289,7 +295,8 @@ const streamGeminiChatResponse = async (
         }
     } catch (error) {
         logger.error("Error generating Gemini content stream:", error);
-        onChunk("Sorry, I encountered an error. Please try again.");
+        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+        onChunk(`Sorry, an error occurred with the Gemini API: ${errorMessage}`);
     }
 };
 
@@ -361,7 +368,7 @@ export const generateImageFromPrompt = async (prompt: string, settings?: { [key:
             return await generateOpenAIImage(prompt, { ...settings, apiEndpoint: endpoint });
         } else {
             logger.log("Using Gemini API for image generation.");
-            return await generateGeminiImage(prompt, settings);
+            return await generateGeminiImage(prompt, settings || {});
         }
     } catch (error) {
         logger.error("Error in generateImageFromPrompt:", error);

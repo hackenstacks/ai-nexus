@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Character, ChatSession, Message, CryptoKeys } from '../types';
 import { streamChatResponse, streamGenericResponse, generateContent } from '../services/geminiService';
 import * as cryptoService from '../services/cryptoService';
+import * as ttsService from '../services/ttsService';
 import { logger } from '../services/loggingService';
 import { ChatBubbleIcon } from './icons/ChatBubbleIcon';
 import { ImageIcon } from './icons/ImageIcon';
@@ -22,16 +23,6 @@ interface ChatInterfaceProps {
   onTriggerHook: <T, R>(hookName: string, data: T) => Promise<R>;
   onMemoryImport: (fromSessionId: string, toSessionId: string) => void;
 }
-
-const speak = (text: string) => {
-    if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        window.speechSynthesis.speak(utterance);
-    } else {
-        logger.warn("Text-to-Speech not supported in this browser.");
-    }
-};
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({ 
     session, 
@@ -98,7 +89,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   useEffect(() => {
     return () => {
       if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);
-      window.speechSynthesis.cancel(); // Stop any speech on component unmount
+      ttsService.cancel(); // Stop any speech on component unmount
     }
   }, []);
 
@@ -172,7 +163,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
         
         if (isTtsEnabled) {
-            speak(fullResponse);
+            ttsService.speak(fullResponse, character.voiceURI);
         }
 
         setCurrentSession(current => {
@@ -517,7 +508,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 <div key={index} className="text-center my-2 group relative">
                   <p className="text-sm text-nexus-gray-700 dark:text-nexus-gray-400 italic px-4">{renderMessageContent(msg)}</p>
                   <div className="absolute top-1/2 -translate-y-1/2 right-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                     <button onClick={() => speak(msg.content)} title="Read Aloud" className="p-1 rounded-full text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600">
+                     <button onClick={() => ttsService.speak(msg.content)} title="Read Aloud" className="p-1 rounded-full text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600">
                         <SpeakerIcon className="w-4 h-4" />
                     </button>
                   </div>
@@ -526,6 +517,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             }
             const msgCharacter = msg.characterId ? getCharacterById(msg.characterId) : null;
             const isUser = msg.role === 'user';
+            const characterVoiceURI = msg.role === 'model' && msgCharacter ? msgCharacter.voiceURI : undefined;
             return (
               <div key={index} className={`flex items-start gap-3 group ${isUser ? 'justify-end' : 'justify-start'}`}>
                 {msg.role === 'model' && msgCharacter && (
@@ -537,7 +529,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                       : 'bg-nexus-gray-light-100 dark:bg-nexus-gray-800 text-nexus-gray-900 dark:text-nexus-gray-200'
                   }`}>
                   <div className="absolute top-0 -translate-y-1/2 flex items-center opacity-0 group-hover:opacity-100 transition-opacity" style={isUser ? {left: '-2rem'} : {right: '-2rem'}}>
-                     <button onClick={() => speak(msg.content)} title="Read Aloud" className="p-1 rounded-full text-nexus-gray-600 dark:text-nexus-gray-400 bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600">
+                     <button onClick={() => ttsService.speak(msg.content, characterVoiceURI)} title="Read Aloud" className="p-1 rounded-full text-nexus-gray-600 dark:text-nexus-gray-400 bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600">
                         <SpeakerIcon className="w-4 h-4" />
                     </button>
                   </div>

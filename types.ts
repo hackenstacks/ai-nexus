@@ -47,6 +47,7 @@ export interface Character {
   personalityTraits?: string; // Comma-separated
   lore?: string[];
   memory?: string;
+  voiceURI?: string; // For Text-to-Speech
   // New security fields
   keys?: CryptoKeys; // Character's own signing key pair
   signature?: string; // Signed by the USER's master private key
@@ -60,7 +61,7 @@ export interface Plugin {
   code: string;
   enabled: boolean;
   settings?: {
-    [key: string]: any;
+    [key:string]: any;
   };
 }
 
