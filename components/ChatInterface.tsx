@@ -49,6 +49,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const imageClickTimeout = useRef<number | null>(null);
   const narratorClickTimeout = useRef<number | null>(null);
   const autoConverseTimeout = useRef<number | null>(null);
+  
+  // Ref to avoid closure issues with state in timeouts/async calls
+  const isAutoConversingRef = useRef(isAutoConversing);
+  useEffect(() => {
+    isAutoConversingRef.current = isAutoConversing;
+  }, [isAutoConversing]);
 
   const participants = useMemo(() => {
     return allCharacters.filter(c => currentSession.characterIds.includes(c.id));
@@ -101,7 +107,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     });
   }, [onSessionUpdate]);
 
-  const addSystemMessage = useCallback((content: string, role: 'narrator' | 'system' = 'narrator') => {
+  const addSystemMessage = useCallback((content: string) => {
     const systemMessage: Message = {
       role: 'narrator',
       content,
@@ -177,6 +183,61 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
 }, [currentSession, onSessionUpdate, participants, isTtsEnabled]);
 
+    const continueAutoConversation = useCallback(async () => {
+        if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);
+
+        if (!isAutoConversingRef.current || participants.length < 2) {
+            setIsAutoConversing(false);
+            return;
+        }
+        
+        const speaker = participants[nextSpeakerIndex.current % participants.length];
+        nextSpeakerIndex.current += 1;
+
+        const otherParticipantNames = participants
+            .filter(p => p.id !== speaker.id)
+            .map(p => p.name)
+            .join(', ');
+
+        const override = `You are in an automated conversation with ${otherParticipantNames}. Continue the conversation naturally based on the history. Your response should be directed at them, not a user. Do not act as a narrator.`;
+        
+        await triggerAIResponse(speaker, currentSession.messages, override);
+
+        if (isAutoConversingRef.current) {
+            autoConverseTimeout.current = window.setTimeout(continueAutoConversation, 3000);
+        }
+    }, [participants, triggerAIResponse, currentSession.messages]);
+
+    const startAutoConversation = useCallback(async (topic: string) => {
+        const starterMessage: Message = {
+            role: 'narrator',
+            content: `[The AIs will now converse about: "${topic}"]`,
+            timestamp: new Date().toISOString()
+        };
+        const updatedMessages = [...currentSession.messages, starterMessage];
+        const updatedSession = { ...currentSession, messages: updatedMessages };
+        setCurrentSession(updatedSession);
+        onSessionUpdate(updatedSession);
+
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
+        const firstSpeaker = participants[nextSpeakerIndex.current % participants.length];
+        nextSpeakerIndex.current += 1;
+
+        const otherParticipantNames = participants
+            .filter(p => p.id !== firstSpeaker.id)
+            .map(p => p.name)
+            .join(', ');
+        
+        const override = `You are in an automated conversation with ${otherParticipantNames}. The user has set the topic: "${topic}". Start the conversation. Your response should be directed at them, not a user. Do not act as a narrator.`;
+
+        await triggerAIResponse(firstSpeaker, updatedMessages, override);
+
+        if (isAutoConversingRef.current) {
+            autoConverseTimeout.current = window.setTimeout(continueAutoConversation, 3000);
+        }
+    }, [participants, triggerAIResponse, currentSession, onSessionUpdate, continueAutoConversation]);
+
   const handleCommand = async (command: string, args: string) => {
     setInput('');
     switch (command) {
@@ -240,10 +301,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             break;
         }
         case 'converse': {
+            if (isAutoConversing) {
+                addSystemMessage("A conversation is already in progress. Use /end or /quit to stop it first.");
+                return;
+            }
             if (participants.length > 1) {
-                addSystemMessage(`Conversation topic: "${args || 'Anything at all.'}" AIs will now converse with each other. Type /end or /quit to stop.`);
+                const topic = args || 'Anything at all.';
                 setIsAutoConversing(true);
-                autoConverseTimeout.current = window.setTimeout(handleAutoConversationTurn, 500);
+                startAutoConversation(topic);
             } else {
                 addSystemMessage("You need at least two characters in the chat to start a conversation.");
             }
@@ -280,45 +345,20 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
     return userMessage;
   };
-
-  const handleAutoConversationTurn = useCallback(async () => {
-    if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);
-
-    if (!isAutoConversing || participants.length < 2) {
-      setIsAutoConversing(false);
-      return;
-    }
-    
-    const speaker = participants[nextSpeakerIndex.current % participants.length];
-    nextSpeakerIndex.current += 1;
-
-    await triggerAIResponse(speaker, currentSession.messages);
-    
-    if (isAutoConversing) { // Re-check state as it might have changed
-       autoConverseTimeout.current = window.setTimeout(handleAutoConversationTurn, 1500);
-    }
-
-  }, [isAutoConversing, participants, currentSession.messages, triggerAIResponse]);
   
   const handleSendMessage = useCallback(async () => {
     const trimmedInput = input.trim();
     if (!trimmedInput || (isStreaming && !isAutoConversing)) return;
 
     if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);
-    const wasAutoConversing = isAutoConversing;
-    setIsAutoConversing(false);
+    if (isAutoConversing) {
+        setIsAutoConversing(false);
+        addSystemMessage("AI conversation stopped by user message.");
+    }
     
     if (trimmedInput.startsWith('/')) {
         const [command, ...args] = trimmedInput.substring(1).split(' ');
         handleCommand(command, args.join(' '));
-        return;
-    }
-    
-    if (wasAutoConversing) {
-        addSystemMessage(`[User Guidance]: ${trimmedInput}`);
-        setIsAutoConversing(true);
-        autoConverseTimeout.current = window.setTimeout(handleAutoConversationTurn, 500);
-        setInput('');
         return;
     }
 
@@ -336,7 +376,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
     }
 
-  }, [input, isStreaming, isAutoConversing, participants, currentSession.messages, addMessage, addSystemMessage, handleAutoConversationTurn, triggerAIResponse, userKeys, handleCommand]);
+  }, [input, isStreaming, isAutoConversing, participants, currentSession.messages, addMessage, addSystemMessage, triggerAIResponse, userKeys, handleCommand, startAutoConversation]);
   
   const handleImageGeneration = async (prompt: string, type: 'direct' | 'summary') => {
       const attachmentMessage: Message = {
@@ -555,7 +595,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
-            placeholder={isAutoConversing ? "Guide the conversation... (or type /end)" : `Message ${session.name}... (/help)`}
+            placeholder={isAutoConversing ? "AI conversation in progress... (/end to stop)" : `Message ${session.name}... (/converse)`}
             className="flex-1 bg-transparent resize-none focus:outline-none px-2 text-nexus-gray-900 dark:text-white"
             rows={1}
             disabled={isStreaming && !isAutoConversing}
