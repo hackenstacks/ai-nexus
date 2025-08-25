@@ -49,9 +49,9 @@ nexus.hooks.register('generateImage', async (payload) => {
     return { url: imageUrl };
 
   } catch (error) {
-    nexus.log('Error in image generation plugin:', error.message);
+    nexus.log('Error in image generation plugin:', error);
     // Return an error structure that the UI can handle
-    return { error: error.message };
+    return { error: String(error) };
   }
 });
 nexus.log('Image Generation plugin loaded.');
@@ -245,11 +245,13 @@ export const MainLayout: React.FC = () => {
     };
     
     const handleCharacterUpdate = (character: Character) => {
-        const updatedCharacters = appData.characters.map(c => c.id === character.id ? character : c);
-        const updatedData = { ...appData, characters: updatedCharacters };
-        setAppData(updatedData);
-        persistData(updatedData);
-        logger.log(`Character data updated programmatically: ${character.name}`);
+        setAppData(prevAppData => {
+            const updatedCharacters = prevAppData.characters.map(c => c.id === character.id ? character : c);
+            const updatedData = { ...prevAppData, characters: updatedCharacters };
+            persistData(updatedData);
+            logger.log(`Character data updated programmatically: ${character.name}`);
+            return updatedData;
+        });
     };
 
     const handleDeleteCharacter = (characterId: string) => {
@@ -315,16 +317,24 @@ export const MainLayout: React.FC = () => {
     };
 
     const handleSessionUpdate = (session: ChatSession) => {
-        const updatedSessions = [...appData.chatSessions];
-        const sessionIndex = updatedSessions.findIndex(s => s.id === session.id);
-        if (sessionIndex > -1) {
-            updatedSessions[sessionIndex] = session;
-        } else {
-            updatedSessions.push(session);
-        }
-        const updatedData = { ...appData, chatSessions: updatedSessions };
-        setAppData(updatedData);
-        persistData(updatedData);
+        setAppData(prevAppData => {
+            let sessionExists = false;
+            const updatedSessions = prevAppData.chatSessions.map(s => {
+                if (s.id === session.id) {
+                    sessionExists = true;
+                    return session;
+                }
+                return s;
+            });
+    
+            if (!sessionExists) {
+                updatedSessions.push(session);
+            }
+    
+            const updatedData = { ...prevAppData, chatSessions: updatedSessions };
+            persistData(updatedData);
+            return updatedData;
+        });
     };
 
     const triggerDownload = (filename: string, data: object) => {

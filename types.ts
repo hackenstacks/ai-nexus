@@ -31,6 +31,7 @@ export interface ApiConfig {
   apiKey?: string;
   apiEndpoint?: string; // Base URL for OpenAI-compatible
   model?: string;
+  rateLimit?: number; // Delay in milliseconds between requests
 }
 
 export interface Character {

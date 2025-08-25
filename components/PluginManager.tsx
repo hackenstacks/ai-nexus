@@ -268,69 +268,86 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
                     />
                 </div>
               <h3 className="text-lg font-medium text-nexus-gray-900 dark:text-white pt-4 border-t border-nexus-gray-light-400 dark:border-nexus-gray-700">API Configuration</h3>
-              <div>
-                <label htmlFor="api-service" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">API Service</label>
-                <select 
-                    id="api-service"
-                    value={formState.settings?.service || 'default'}
-                    onChange={(e) => handleSettingsChange('service', e.target.value as ApiConfig['service'])}
-                    className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-                >
-                    <option value="default">Default (Gemini)</option>
-                    <option value="gemini">Google Gemini (Custom Key)</option>
-                    <option value="openai">OpenAI-Compatible (e.g., DALL-E)</option>
-                </select>
-              </div>
-              {formState.settings?.service === 'gemini' && (
-                  <div>
-                    <label htmlFor="api-key" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Gemini API Key</label>
-                    <input
-                      id="api-key"
-                      type="password"
-                      value={formState.settings?.apiKey || ''}
-                      onChange={(e) => handleSettingsChange('apiKey', e.target.value)}
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="api-service" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">API Service</label>
+                  <select 
+                      id="api-service"
+                      value={formState.settings?.service || 'default'}
+                      onChange={(e) => handleSettingsChange('service', e.target.value as ApiConfig['service'])}
                       className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-                      placeholder="Leave blank to use default key"
-                    />
-                  </div>
-              )}
-               {formState.settings?.service === 'openai' && (
-                    <>
-                        <div>
-                            <label htmlFor="api-endpoint" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">API Endpoint</label>
-                            <input
-                                id="api-endpoint"
-                                type="text"
-                                value={formState.settings?.apiEndpoint || ''}
-                                onChange={(e) => handleSettingsChange('apiEndpoint', e.target.value)}
-                                className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-                                placeholder="e.g., https://api.openai.com/v1/images/generations"
-                            />
-                        </div>
-                         <div>
-                            <label htmlFor="api-key" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">API Key</label>
-                            <input
-                                id="api-key"
-                                type="password"
-                                value={formState.settings?.apiKey || ''}
-                                onChange={(e) => handleSettingsChange('apiKey', e.target.value)}
-                                className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-                                placeholder="API Key"
-                            />
-                        </div>
-                        <div>
-                            <label htmlFor="api-model" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Model Name</label>
-                            <input
-                                id="api-model"
-                                type="text"
-                                value={formState.settings?.model || ''}
-                                onChange={(e) => handleSettingsChange('model', e.target.value)}
-                                className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-                                placeholder="e.g., dall-e-3"
-                            />
-                        </div>
-                    </>
+                  >
+                      <option value="default">Default (Gemini)</option>
+                      <option value="gemini">Google Gemini (Custom Key)</option>
+                      <option value="openai">OpenAI-Compatible (e.g., DALL-E)</option>
+                  </select>
+                </div>
+                {formState.settings?.service === 'gemini' && (
+                    <div>
+                      <label htmlFor="api-key" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Gemini API Key</label>
+                      <input
+                        id="api-key"
+                        type="password"
+                        value={formState.settings?.apiKey || ''}
+                        onChange={(e) => handleSettingsChange('apiKey', e.target.value)}
+                        className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                        placeholder="Leave blank to use default key"
+                      />
+                    </div>
                 )}
+                 {formState.settings?.service === 'openai' && (
+                      <>
+                          <div>
+                              <label htmlFor="api-endpoint" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">API Endpoint</label>
+                              <input
+                                  id="api-endpoint"
+                                  type="text"
+                                  value={formState.settings?.apiEndpoint || ''}
+                                  onChange={(e) => handleSettingsChange('apiEndpoint', e.target.value)}
+                                  className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                                  placeholder="e.g., https://api.openai.com/v1/images/generations"
+                              />
+                          </div>
+                           <div>
+                              <label htmlFor="api-key" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">API Key</label>
+                              <input
+                                  id="api-key"
+                                  type="password"
+                                  value={formState.settings?.apiKey || ''}
+                                  onChange={(e) => handleSettingsChange('apiKey', e.target.value)}
+                                  className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                                  placeholder="API Key"
+                              />
+                          </div>
+                          <div>
+                              <label htmlFor="api-model" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Model Name</label>
+                              <input
+                                  id="api-model"
+                                  type="text"
+                                  value={formState.settings?.model || ''}
+                                  onChange={(e) => handleSettingsChange('model', e.target.value)}
+                                  className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                                  placeholder="e.g., dall-e-3"
+                              />
+                          </div>
+                      </>
+                  )}
+                  {(formState.settings?.service === 'gemini' || formState.settings?.service === 'openai') && (
+                    <div>
+                        <label htmlFor="plugin-api-rate-limit" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Request Delay (ms)</label>
+                        <input
+                            id="plugin-api-rate-limit"
+                            type="number"
+                            value={formState.settings?.rateLimit || ''}
+                            onChange={(e) => handleSettingsChange('rateLimit', e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                            className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                            placeholder="e.g., 1000 (for 1 request per second)"
+                            min="0"
+                        />
+                        <p className="text-xs text-nexus-gray-700 dark:text-nexus-gray-400 mt-1">Minimum time to wait between image generation requests to avoid rate limits.</p>
+                    </div>
+                )}
+              </div>
             </div>
           )}
           <div className="flex flex-col h-96">

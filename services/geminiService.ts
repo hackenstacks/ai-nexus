@@ -2,6 +2,9 @@ import { GoogleGenAI } from "@google/genai";
 import { Character, Message, ApiConfig } from "../types";
 import { logger } from "./loggingService";
 
+// --- Rate Limiting ---
+const lastRequestTimestamps = new Map<string, number>();
+
 // --- Gemini Client Setup ---
 const API_KEY = process.env.API_KEY;
 let defaultAi: GoogleGenAI | null = null;
@@ -332,6 +335,23 @@ export const streamChatResponse = async (
     systemInstructionOverride?: string
 ): Promise<void> => {
     const config = character.apiConfig || { service: 'default' };
+    
+    // Rate Limiting
+    const rateLimit = config.rateLimit;
+    if (rateLimit && rateLimit > 0) {
+        const characterId = character.id;
+        const lastRequestTime = lastRequestTimestamps.get(characterId) || 0;
+        const now = Date.now();
+        const elapsed = now - lastRequestTime;
+
+        if (elapsed < rateLimit) {
+            const delay = rateLimit - elapsed;
+            logger.log(`Rate limiting character "${character.name}". Delaying for ${delay}ms.`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        lastRequestTimestamps.set(characterId, Date.now());
+    }
+
     let systemInstruction = buildSystemInstruction(character, allParticipants);
 
     if (systemInstructionOverride) {
@@ -354,6 +374,22 @@ export const streamChatResponse = async (
 
 export const generateImageFromPrompt = async (prompt: string, settings?: { [key: string]: any }): Promise<string> => {
     try {
+        // Rate Limiting for image generation
+        const rateLimit = settings?.rateLimit;
+        if (rateLimit && rateLimit > 0) {
+            const pluginId = 'default-image-generator';
+            const lastRequestTime = lastRequestTimestamps.get(pluginId) || 0;
+            const now = Date.now();
+            const elapsed = now - lastRequestTime;
+
+            if (elapsed < rateLimit) {
+                const delay = rateLimit - elapsed;
+                logger.log(`Rate limiting image generation. Delaying for ${delay}ms.`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+            lastRequestTimestamps.set(pluginId, Date.now());
+        }
+
         const service = settings?.service || 'default';
         if (service === 'openai') {
             logger.log("Using OpenAI-compatible API for image generation.", { endpoint: settings?.apiEndpoint, model: settings?.model });

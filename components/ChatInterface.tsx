@@ -49,19 +49,32 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const imageClickTimeout = useRef<number | null>(null);
   const narratorClickTimeout = useRef<number | null>(null);
   const autoConverseTimeout = useRef<number | null>(null);
-  
-  // Ref to avoid closure issues with state in timeouts/async calls
+
+  // Refs to avoid closure issues with state in timeouts/async calls
   const isAutoConversingRef = useRef(isAutoConversing);
   useEffect(() => {
     isAutoConversingRef.current = isAutoConversing;
   }, [isAutoConversing]);
+
+  const currentSessionRef = useRef(session);
+  useEffect(() => {
+    currentSessionRef.current = currentSession;
+  }, [currentSession]);
 
   const participants = useMemo(() => {
     return allCharacters.filter(c => currentSession.characterIds.includes(c.id));
   }, [allCharacters, currentSession.characterIds]);
 
   useEffect(() => {
-    setCurrentSession(session);
+    // When the session prop changes from outside, reset the state.
+    // Also stop any ongoing auto-conversation.
+    if (session.id !== currentSessionRef.current.id) {
+        setCurrentSession(session);
+        if (isAutoConversingRef.current) {
+            setIsAutoConversing(false);
+            if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);
+        }
+    }
   }, [session]);
   
   useEffect(() => {
@@ -99,9 +112,16 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   }, []);
 
+  const updateSession = useCallback((newSession: ChatSession) => {
+    setCurrentSession(newSession);
+    currentSessionRef.current = newSession;
+    onSessionUpdate(newSession);
+  }, [onSessionUpdate]);
+
   const addMessage = useCallback((message: Message) => {
     setCurrentSession(prevSession => {
       const updatedSession = { ...prevSession, messages: [...prevSession.messages, message] };
+      currentSessionRef.current = updatedSession;
       onSessionUpdate(updatedSession);
       return updatedSession;
     });
@@ -117,6 +137,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   }, [addMessage]);
   
   const triggerAIResponse = useCallback(async (character: Character, history: Message[], override?: string) => {
+    if (history.filter(m => m.content).length === 0) {
+      addSystemMessage("AI cannot respond to an empty history.");
+      return;
+    }
+
     setIsStreaming(true);
     const modelPlaceholder: Message = {
         role: 'model',
@@ -125,10 +150,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         characterId: character.id
     };
     
-    const updatedMessages = [...history, modelPlaceholder];
-    const sessionWithPlaceholder = { ...currentSession, messages: updatedMessages };
-    setCurrentSession(sessionWithPlaceholder);
-    onSessionUpdate(sessionWithPlaceholder);
+    updateSession({ ...currentSessionRef.current, messages: [...history, modelPlaceholder] });
 
     let fullResponse = '';
     
@@ -139,10 +161,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             history,
             (chunk) => {
                 fullResponse += chunk;
-                setCurrentSession(current => ({
-                    ...current,
-                    messages: current.messages.map(msg => msg.timestamp === modelPlaceholder.timestamp ? { ...msg, content: fullResponse } : msg),
-                }));
+                setCurrentSession(current => {
+                    const updatedSession = {
+                        ...current,
+                        messages: current.messages.map(msg => msg.timestamp === modelPlaceholder.timestamp ? { ...msg, content: fullResponse } : msg),
+                    };
+                    currentSessionRef.current = updatedSession;
+                    return updatedSession;
+                });
             },
             override
         );
@@ -171,72 +197,60 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         if (isTtsEnabled) {
             ttsService.speak(fullResponse, character.voiceURI);
         }
-
+        
         setCurrentSession(current => {
             const updatedMessages = current.messages.map(msg =>
                 msg.timestamp === modelPlaceholder.timestamp ? finalMessage : msg
             );
             const finalSession = { ...current, messages: updatedMessages };
+            currentSessionRef.current = finalSession;
             onSessionUpdate(finalSession);
             return finalSession;
         });
     }
-}, [currentSession, onSessionUpdate, participants, isTtsEnabled]);
+  }, [participants, isTtsEnabled, onSessionUpdate, addSystemMessage, updateSession]);
 
-    const continueAutoConversation = useCallback(async () => {
-        if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);
+  const continueAutoConversation = useCallback(async () => {
+    if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);
+    if (!isAutoConversingRef.current || participants.length < 2) {
+        setIsAutoConversing(false);
+        return;
+    }
+    
+    const speaker = participants[nextSpeakerIndex.current % participants.length];
+    nextSpeakerIndex.current += 1;
+    const otherParticipantNames = participants.filter(p => p.id !== speaker.id).map(p => p.name).join(', ');
+    const override = `You are in an automated conversation with ${otherParticipantNames}. Continue the conversation naturally based on the history. Your response should be directed at them, not a user. Do not act as a narrator.`;
+    
+    await triggerAIResponse(speaker, currentSessionRef.current.messages, override);
 
-        if (!isAutoConversingRef.current || participants.length < 2) {
-            setIsAutoConversing(false);
-            return;
-        }
-        
-        const speaker = participants[nextSpeakerIndex.current % participants.length];
-        nextSpeakerIndex.current += 1;
+    if (isAutoConversingRef.current) {
+        autoConverseTimeout.current = window.setTimeout(() => continueAutoConversation(), 3000);
+    }
+  }, [participants, triggerAIResponse]);
 
-        const otherParticipantNames = participants
-            .filter(p => p.id !== speaker.id)
-            .map(p => p.name)
-            .join(', ');
+  const startAutoConversation = useCallback(async (topic: string) => {
+    const starterMessage: Message = {
+        role: 'narrator',
+        content: `[The AIs will now converse about: "${topic}"]`,
+        timestamp: new Date().toISOString()
+    };
+    const updatedMessages = [...currentSessionRef.current.messages, starterMessage];
+    updateSession({ ...currentSessionRef.current, messages: updatedMessages });
 
-        const override = `You are in an automated conversation with ${otherParticipantNames}. Continue the conversation naturally based on the history. Your response should be directed at them, not a user. Do not act as a narrator.`;
-        
-        await triggerAIResponse(speaker, currentSession.messages, override);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
+    const firstSpeaker = participants[nextSpeakerIndex.current % participants.length];
+    nextSpeakerIndex.current += 1;
+    const otherParticipantNames = participants.filter(p => p.id !== firstSpeaker.id).map(p => p.name).join(', ');
+    const override = `You are in an automated conversation with ${otherParticipantNames}. The user has set the topic: "${topic}". Start the conversation. Your response should be directed at them, not a user. Do not act as a narrator.`;
 
-        if (isAutoConversingRef.current) {
-            autoConverseTimeout.current = window.setTimeout(continueAutoConversation, 3000);
-        }
-    }, [participants, triggerAIResponse, currentSession.messages]);
+    await triggerAIResponse(firstSpeaker, updatedMessages, override);
 
-    const startAutoConversation = useCallback(async (topic: string) => {
-        const starterMessage: Message = {
-            role: 'narrator',
-            content: `[The AIs will now converse about: "${topic}"]`,
-            timestamp: new Date().toISOString()
-        };
-        const updatedMessages = [...currentSession.messages, starterMessage];
-        const updatedSession = { ...currentSession, messages: updatedMessages };
-        setCurrentSession(updatedSession);
-        onSessionUpdate(updatedSession);
-
-        await new Promise(resolve => setTimeout(resolve, 50));
-        
-        const firstSpeaker = participants[nextSpeakerIndex.current % participants.length];
-        nextSpeakerIndex.current += 1;
-
-        const otherParticipantNames = participants
-            .filter(p => p.id !== firstSpeaker.id)
-            .map(p => p.name)
-            .join(', ');
-        
-        const override = `You are in an automated conversation with ${otherParticipantNames}. The user has set the topic: "${topic}". Start the conversation. Your response should be directed at them, not a user. Do not act as a narrator.`;
-
-        await triggerAIResponse(firstSpeaker, updatedMessages, override);
-
-        if (isAutoConversingRef.current) {
-            autoConverseTimeout.current = window.setTimeout(continueAutoConversation, 3000);
-        }
-    }, [participants, triggerAIResponse, currentSession, onSessionUpdate, continueAutoConversation]);
+    if (isAutoConversingRef.current) {
+        autoConverseTimeout.current = window.setTimeout(continueAutoConversation, 3000);
+    }
+  }, [participants, triggerAIResponse, updateSession, continueAutoConversation]);
 
   const handleCommand = async (command: string, args: string) => {
     setInput('');
@@ -348,7 +362,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   
   const handleSendMessage = useCallback(async () => {
     const trimmedInput = input.trim();
-    if (!trimmedInput || (isStreaming && !isAutoConversing)) return;
+    if (!trimmedInput || isStreaming) return;
 
     if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);
     if (isAutoConversing) {
@@ -376,7 +390,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
     }
 
-  }, [input, isStreaming, isAutoConversing, participants, currentSession.messages, addMessage, addSystemMessage, triggerAIResponse, userKeys, handleCommand, startAutoConversation]);
+  }, [input, isStreaming, isAutoConversing, participants, currentSession.messages, addMessage, addSystemMessage, triggerAIResponse, userKeys, handleCommand]);
   
   const handleImageGeneration = async (prompt: string, type: 'direct' | 'summary') => {
       const attachmentMessage: Message = {
@@ -598,7 +612,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             placeholder={isAutoConversing ? "AI conversation in progress... (/end to stop)" : `Message ${session.name}... (/converse)`}
             className="flex-1 bg-transparent resize-none focus:outline-none px-2 text-nexus-gray-900 dark:text-white"
             rows={1}
-            disabled={isStreaming && !isAutoConversing}
+            disabled={isStreaming}
           />
           <button onClick={() => setIsMemoryModalVisible(true)} title="Import Memory From Another Chat" className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white disabled:opacity-50" disabled={isStreaming}>
             <BrainIcon className="w-6 h-6" />
@@ -609,7 +623,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           <button onClick={handleImageButtonClick} title="Generate Image (Single-click for prompt, double-click for auto)" className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white disabled:opacity-50" disabled={isStreaming}>
             <ImageIcon className="w-6 h-6" />
           </button>
-          <button onClick={handleSendMessage} disabled={!input.trim() || (isStreaming && !isAutoConversing)} className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white disabled:opacity-50" title="Send message">
+          <button onClick={handleSendMessage} disabled={!input.trim() || isStreaming} className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white disabled:opacity-50" title="Send message">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" /></svg>
           </button>
         </div>

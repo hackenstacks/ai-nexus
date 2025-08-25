@@ -320,6 +320,21 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
                         </div>
                     </>
                 )}
+                {(apiConfig.service === 'gemini' || apiConfig.service === 'openai') && (
+                    <div>
+                        <label htmlFor="api-rate-limit" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Request Delay (ms)</label>
+                        <input
+                            id="api-rate-limit"
+                            type="number"
+                            value={apiConfig.rateLimit || ''}
+                            onChange={(e) => handleApiConfigChange('rateLimit', e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                            className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                            placeholder="e.g., 1000 (for 1 request per second)"
+                            min="0"
+                        />
+                        <p className="text-xs text-nexus-gray-700 dark:text-nexus-gray-400 mt-1">Minimum time to wait between requests from this character to avoid rate limits.</p>
+                    </div>
+                )}
             </div>
         </Section>
        
