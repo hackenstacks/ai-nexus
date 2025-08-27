@@ -37,7 +37,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [currentSession, setCurrentSession] = useState<ChatSession>(session);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
-  const [isAutoConversing, setIsAutoConversing] = useState(false);
+  const [autoConverseStatus, setAutoConverseStatus] = useState<'stopped' | 'running' | 'paused'>('stopped');
   const [isMemoryModalVisible, setIsMemoryModalVisible] = useState(false);
   const [isTtsEnabled, setIsTtsEnabled] = useState(false);
   const [verifiedSignatures, setVerifiedSignatures] = useState<Record<string, boolean>>({});
@@ -51,10 +51,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const autoConverseTimeout = useRef<number | null>(null);
 
   // Refs to avoid closure issues with state in timeouts/async calls
-  const isAutoConversingRef = useRef(isAutoConversing);
+  const autoConverseStatusRef = useRef(autoConverseStatus);
   useEffect(() => {
-    isAutoConversingRef.current = isAutoConversing;
-  }, [isAutoConversing]);
+    autoConverseStatusRef.current = autoConverseStatus;
+  }, [autoConverseStatus]);
 
   const currentSessionRef = useRef(session);
   useEffect(() => {
@@ -70,8 +70,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // Also stop any ongoing auto-conversation.
     if (session.id !== currentSessionRef.current.id) {
         setCurrentSession(session);
-        if (isAutoConversingRef.current) {
-            setIsAutoConversing(false);
+        if (autoConverseStatusRef.current !== 'stopped') {
+            setAutoConverseStatus('stopped');
             if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);
         }
     }
@@ -208,8 +208,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   const continueAutoConversation = useCallback(async () => {
     if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);
-    if (!isAutoConversingRef.current || participants.length < 2) {
-        setIsAutoConversing(false);
+    if (autoConverseStatusRef.current !== 'running' || participants.length < 2) {
+        if (autoConverseStatusRef.current !== 'paused') {
+            setAutoConverseStatus('stopped');
+        }
         return;
     }
     
@@ -220,7 +222,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     
     await triggerAIResponse(speaker, currentSessionRef.current.messages, override);
 
-    if (isAutoConversingRef.current) {
+    if (autoConverseStatusRef.current === 'running') {
         autoConverseTimeout.current = window.setTimeout(() => continueAutoConversation(), 3000);
     }
   }, [participants, triggerAIResponse]);
@@ -241,7 +243,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     await triggerAIResponse(firstSpeaker, updatedMessages, override);
 
-    if (isAutoConversingRef.current) {
+    if (autoConverseStatusRef.current === 'running') {
         autoConverseTimeout.current = window.setTimeout(continueAutoConversation, 3000);
     }
   }, [participants, triggerAIResponse, updateSession, continueAutoConversation]);
@@ -309,25 +311,51 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             break;
         }
         case 'converse': {
-            if (isAutoConversingRef.current) {
-                addSystemMessage("A conversation is already in progress. Use /end or /quit to stop it first.");
+            if (autoConverseStatusRef.current !== 'stopped') {
+                addSystemMessage("A conversation is already in progress. Use /end to stop it, or /pause to pause.");
                 return;
             }
             if (participants.length > 1) {
                 const topic = args || 'Anything at all.';
-                setIsAutoConversing(true);
+                setAutoConverseStatus('running');
                 startAutoConversation(topic);
             } else {
                 addSystemMessage("You need at least two characters in the chat to start a conversation.");
             }
             break;
         }
+        case 'pause': {
+            if (autoConverseStatusRef.current === 'running') {
+                if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);
+                setAutoConverseStatus('paused');
+                addSystemMessage("AI conversation paused. Use /resume to continue.");
+            } else if (autoConverseStatusRef.current === 'paused') {
+                addSystemMessage("Conversation is already paused.");
+            } else {
+                 addSystemMessage("No conversation is running to pause.");
+            }
+            break;
+        }
+        case 'resume': {
+             if (autoConverseStatusRef.current === 'paused') {
+                setAutoConverseStatus('running');
+                addSystemMessage("AI conversation resumed.");
+                continueAutoConversation();
+            } else if (autoConverseStatusRef.current === 'running') {
+                addSystemMessage("Conversation is already running.");
+            } else {
+                addSystemMessage("No paused conversation to resume.");
+            }
+            break;
+        }
         case 'quit':
         case 'end': {
-            if (isAutoConversingRef.current) {
+            if (autoConverseStatusRef.current !== 'stopped') {
                 if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);
-                setIsAutoConversing(false);
+                setAutoConverseStatus('stopped');
                 addSystemMessage("AI conversation ended by user.");
+            } else {
+                addSystemMessage("No conversation is running to end.");
             }
             break;
         }
@@ -359,16 +387,18 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     if (!trimmedInput) return;
     
     // If an AI is talking in a non-auto-conversation, block sending.
-    if (isStreaming && !isAutoConversingRef.current) return;
+    if (isStreaming && autoConverseStatusRef.current === 'stopped') return;
 
     if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);
-    if (isAutoConversingRef.current) {
-        setIsAutoConversing(false);
+    if (autoConverseStatusRef.current !== 'stopped') {
+        setAutoConverseStatus('stopped');
         addSystemMessage("AI conversation stopped by user message.");
     }
     
     if (trimmedInput.startsWith('/')) {
-        handleCommand(trimmedInput.substring(1).split(' ')[0], trimmedInput.substring(1).split(' ').slice(1).join(' '));
+        const [command, ...argsParts] = trimmedInput.substring(1).split(' ');
+        const args = argsParts.join(' ');
+        handleCommand(command.toLowerCase(), args);
         return;
     }
 
@@ -505,7 +535,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   
   const getCharacterById = (id: string) => allCharacters.find(c => c.id === id);
 
-  const isInputDisabled = isStreaming && !isAutoConversing;
+  const isInputDisabled = isStreaming && autoConverseStatus === 'stopped';
 
   return (
     <div className="flex flex-col h-full bg-nexus-gray-light-200 dark:bg-nexus-gray-900">
@@ -601,7 +631,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
-            placeholder={isAutoConversing ? "AI conversation in progress... (/end to stop)" : `Message ${session.name}... (/converse)`}
+            placeholder={
+                autoConverseStatus === 'running' ? "AI conversation in progress... (/pause or /end)" :
+                autoConverseStatus === 'paused' ? "AI conversation paused. (/resume or /end)" :
+                `Message ${session.name}... (/converse)`
+            }
             className="flex-1 bg-transparent resize-none focus:outline-none px-2 text-nexus-gray-900 dark:text-white"
             rows={1}
             disabled={isInputDisabled}

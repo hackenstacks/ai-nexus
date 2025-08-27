@@ -68,7 +68,9 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
                         <li><code className="bg-nexus-gray-light-200 dark:bg-nexus-dark px-1 rounded">/sys [instruction]</code> - Provides a one-time system instruction for the AI's next response.</li>
                         <li><code className="bg-nexus-gray-light-200 dark:bg-nexus-dark px-1 rounded">/character [name] [prompt]</code> - Address a specific character in a group chat.</li>
                         <li><code className="bg-nexus-gray-light-200 dark:bg-nexus-dark px-1 rounded">/converse [optional topic]</code> - (Group chats only) AIs will start talking to each other.</li>
-                         <li><code className="bg-nexus-gray-light-200 dark:bg-nexus-dark px-1 rounded">/end</code> or <code className="bg-nexus-dark px-1 rounded">/quit</code> - Stops an ongoing AI conversation.</li>
+                        <li><code className="bg-nexus-gray-light-200 dark:bg-nexus-dark px-1 rounded">/pause</code> - Pauses an ongoing AI conversation.</li>
+                        <li><code className="bg-nexus-gray-light-200 dark:bg-nexus-dark px-1 rounded">/resume</code> - Resumes a paused AI conversation.</li>
+                        <li><code className="bg-nexus-gray-light-200 dark:bg-nexus-dark px-1 rounded">/end</code> or <code className="bg-nexus-dark px-1 rounded">/quit</code> - Stops an ongoing AI conversation.</li>
                     </ul>
                  </HelpSubSection>
                  <HelpSubSection title="Action Buttons">
