@@ -52,7 +52,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
                     <ul className="list-disc list-inside space-y-2">
                         <li><strong>Export Character:</strong> Click the download icon next to any character's name to save them as a universal `.json` character card.</li>
                         <li><strong>Export Chat:</strong> Click the download icon next to any chat's name to save the conversation history as a `.json` file.</li>
-                        <li><strong>Export Backup:</strong> Click the `Export Backup` button in the sidebar to save a full backup of your entire instance.</li>
+                        <li><strong>Save Backup:</strong> Click the `Save Backup` button in the sidebar to save a full backup of your entire instance.</li>
                     </ul>
                  </HelpSubSection>
             </HelpSection>
@@ -64,7 +64,8 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
                     <ul className="list-disc list-inside space-y-1">
                         <li><code className="bg-nexus-gray-light-200 dark:bg-nexus-dark px-1 rounded">/image [prompt]</code> - Generates an image.</li>
                         <li><code className="bg-nexus-gray-light-200 dark:bg-nexus-dark px-1 rounded">/narrate [prompt]</code> - Adds a narrative description to the scene.</li>
-                        <li><code className="bg-nexus-gray-light-200 dark:bg-nexus-dark px-1 rounded">/save</code> - Summarizes recent events and saves them to the characters' long-term memory.</li>
+                        <li><code className="bg-nexus-gray-light-200 dark:bg-nexus-dark px-1 rounded">/snapshot</code> or <code className="bg-nexus-gray-light-200 dark:bg-nexus-dark px-1 rounded">/memorize</code> - Summarizes recent events and saves them to the characters' long-term memory.</li>
+                        <li><code className="bg-nexus-gray-light-200 dark:bg-nexus-dark px-1 rounded">/save</code> - Triggers a download of a full application backup file.</li>
                         <li><code className="bg-nexus-gray-light-200 dark:bg-nexus-dark px-1 rounded">/sys [instruction]</code> - Provides a one-time system instruction for the AI's next response.</li>
                         <li><code className="bg-nexus-gray-light-200 dark:bg-nexus-dark px-1 rounded">/character [name] [prompt]</code> - Address a specific character in a group chat.</li>
                         <li><code className="bg-nexus-gray-light-200 dark:bg-nexus-dark px-1 rounded">/converse [optional topic]</code> - (Group chats only) AIs will start talking to each other.</li>

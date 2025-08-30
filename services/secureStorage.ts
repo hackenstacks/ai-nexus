@@ -1,4 +1,4 @@
-import { AppData, ChatSession } from '../types';
+import { AppData, ChatSession, VectorChunk } from '../types';
 import { STORAGE_KEY_DATA, STORAGE_KEY_PASS_VERIFIER } from '../constants';
 import { logger } from './loggingService';
 
@@ -54,7 +54,8 @@ const setMasterKey = (password: string) => {
 // --- IndexedDB setup ---
 const DB_NAME = 'AINexusDB';
 const STORE_NAME = 'appDataStore';
-const DB_VERSION = 1;
+const VECTOR_STORE_NAME = 'vectorStore';
+const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -77,6 +78,11 @@ const getDB = (): Promise<IDBDatabase> => {
                 const db = (event.target as IDBOpenDBRequest).result;
                 if (!db.objectStoreNames.contains(STORE_NAME)) {
                     db.createObjectStore(STORE_NAME);
+                }
+                if (!db.objectStoreNames.contains(VECTOR_STORE_NAME)) {
+                    const vectorStore = db.createObjectStore(VECTOR_STORE_NAME, { keyPath: 'id' });
+                    vectorStore.createIndex('characterId', 'characterId', { unique: false });
+                    vectorStore.createIndex('sourceId', 'sourceId', { unique: false });
                 }
             };
         });
@@ -218,4 +224,52 @@ export const loadData = async (): Promise<AppData> => {
         // On decryption failure, returning empty state prevents app crash
         return { characters: [], chatSessions: [], plugins: [] };
     }
+};
+
+// --- Vector Store Functions ---
+
+export const saveVectorChunks = async (chunks: VectorChunk[]): Promise<void> => {
+    const db = await getDB();
+    const transaction = db.transaction(VECTOR_STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(VECTOR_STORE_NAME);
+    for (const chunk of chunks) {
+        store.put(chunk);
+    }
+    return new Promise((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+    });
+};
+
+export const getVectorChunksByCharacter = async (characterId: string): Promise<VectorChunk[]> => {
+    const db = await getDB();
+    const transaction = db.transaction(VECTOR_STORE_NAME, 'readonly');
+    const store = transaction.objectStore(VECTOR_STORE_NAME);
+    const index = store.index('characterId');
+    const request = index.getAll(characterId);
+    return new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+};
+
+export const deleteVectorChunksBySource = async (sourceId: string): Promise<void> => {
+    const db = await getDB();
+    const transaction = db.transaction(VECTOR_STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(VECTOR_STORE_NAME);
+    const index = store.index('sourceId');
+    const request = index.openCursor(IDBKeyRange.only(sourceId));
+    
+    return new Promise((resolve, reject) => {
+        request.onsuccess = () => {
+            const cursor = request.result;
+            if (cursor) {
+                cursor.delete();
+                cursor.continue();
+            } else {
+                resolve();
+            }
+        };
+        request.onerror = () => reject(request.error);
+    });
 };

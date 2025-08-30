@@ -3,6 +3,7 @@ import { Character, ChatSession, Message, CryptoKeys } from '../types';
 import { streamChatResponse, streamGenericResponse, generateContent } from '../services/geminiService';
 import * as cryptoService from '../services/cryptoService';
 import * as ttsService from '../services/ttsService';
+import * as ragService from '../services/ragService';
 import { logger } from '../services/loggingService';
 import { ChatBubbleIcon } from './icons/ChatBubbleIcon';
 import { ImageIcon } from './icons/ImageIcon';
@@ -22,6 +23,7 @@ interface ChatInterfaceProps {
   onCharacterUpdate: (character: Character) => void;
   onTriggerHook: <T, R>(hookName: string, data: T) => Promise<R>;
   onMemoryImport: (fromSessionId: string, toSessionId: string) => void;
+  onSaveBackup: () => void;
 }
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({ 
@@ -32,7 +34,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     onSessionUpdate, 
     onCharacterUpdate, 
     onTriggerHook,
-    onMemoryImport
+    onMemoryImport,
+    onSaveBackup
 }) => {
   const [currentSession, setCurrentSession] = useState<ChatSession>(session);
   const [input, setInput] = useState('');
@@ -259,10 +262,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             handleNarration(args, 'direct');
             break;
         }
-        case 'save': {
+        case 'snapshot':
+        case 'memorize': {
             const history = currentSessionRef.current.messages.slice(-10);
             if (history.length === 0) {
-                addSystemMessage("Not enough conversation history to save a memory.");
+                addSystemMessage("Not enough conversation history to save a memory snapshot.");
                 return;
             }
             addSystemMessage("Generating memory snapshot...");
@@ -280,6 +284,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 logger.error("Failed to generate memory summary", e);
                 addSystemMessage("Failed to generate memory summary. See logs for details.");
             }
+            break;
+        }
+        case 'save': {
+            addSystemMessage("Saving a full application backup... Your download will begin shortly.");
+            onSaveBackup();
             break;
         }
         case 'sys': {
@@ -410,7 +419,27 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     if (participants.length > 0) {
         const respondent = participants[nextSpeakerIndex.current % participants.length];
         nextSpeakerIndex.current += 1;
-        await triggerAIResponse(respondent, newHistory, systemOverride.current || undefined);
+        
+        let finalSystemOverride = systemOverride.current;
+        // RAG integration
+        if (respondent.ragEnabled) {
+            try {
+                const ragContext = await ragService.findRelevantContext(trimmedInput, respondent);
+                if (ragContext) {
+                    logger.log("Injecting RAG context for response.", { character: respondent.name });
+                    const contextInstruction = `[ADDITIONAL CONTEXT FROM KNOWLEDGE BASE]:\n${ragContext}`;
+                    finalSystemOverride = finalSystemOverride
+                        ? `${contextInstruction}\n\n${finalSystemOverride}`
+                        : contextInstruction;
+                }
+            } catch (e) {
+                logger.error("RAG context retrieval failed:", e);
+                addSystemMessage(`Could not retrieve context for ${respondent.name}. Check embedding API settings.`);
+            }
+        }
+
+        await triggerAIResponse(respondent, newHistory, finalSystemOverride || undefined);
+        
         if (systemOverride.current) {
             systemOverride.current = null;
         }

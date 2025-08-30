@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Character, ChatSession, AppData, Plugin, GeminiApiRequest, Message, CryptoKeys } from '../types';
+import { Character, ChatSession, AppData, Plugin, GeminiApiRequest, Message, CryptoKeys, RagSource } from '../types';
 import { loadData, saveData } from '../services/secureStorage';
+import * as ragService from '../services/ragService';
 import { CharacterList } from './CharacterList';
 import { ChatList } from './ChatList';
 import { CharacterForm } from './CharacterForm';
@@ -241,11 +242,18 @@ export const MainLayout: React.FC = () => {
         
         const updatedData = { ...appData, characters: updatedCharacters };
         setAppData(updatedData);
-        persistData(updatedData);
+        await persistData(updatedData); // Use await here
         logger.log(`Character ${isNew ? 'created' : 'updated'}: ${updatedCharacter.name}`);
         
+        // If we were editing, update the state for the form to reflect the saved data
+        if (editingCharacter && editingCharacter.id === updatedCharacter.id) {
+            setEditingCharacter(updatedCharacter);
+        }
+        
         setView('chat');
-        setEditingCharacter(null);
+        if (isNew) {
+           setEditingCharacter(null);
+        }
     };
     
     const handleCharacterUpdate = useCallback((character: Character) => {
@@ -259,8 +267,18 @@ export const MainLayout: React.FC = () => {
     }, [persistData]);
 
     const handleDeleteCharacter = (characterId: string) => {
-        if (window.confirm('Are you sure you want to delete this character? All chats involving this character will also be deleted.')) {
+        if (window.confirm('Are you sure you want to delete this character? All chats involving this character and all its knowledge files will also be deleted.')) {
             const characterName = appData.characters.find(c => c.id === characterId)?.name || 'Unknown';
+            const characterToDelete = appData.characters.find(c => c.id === characterId);
+            
+            // Delete associated RAG sources and vectors
+            if (characterToDelete?.ragSources && characterToDelete.ragSources.length > 0) {
+                characterToDelete.ragSources.forEach(async (source) => {
+                    await ragService.deleteSource(source.id);
+                });
+                logger.log(`Deleted all knowledge sources for character: ${characterName}`);
+            }
+
             const updatedCharacters = appData.characters.filter(c => c.id !== characterId);
             const updatedSessions = appData.chatSessions.filter(s => !s.characterIds.includes(characterId));
             
@@ -274,6 +292,36 @@ export const MainLayout: React.FC = () => {
             }
         }
     };
+
+    const handleDeleteRagSource = async (characterId: string, sourceId: string) => {
+        try {
+            const character = appData.characters.find(c => c.id === characterId);
+            if (!character) throw new Error("Character not found");
+
+            const source = character.ragSources?.find(s => s.id === sourceId);
+            if (!source) throw new Error("Source not found");
+            
+            if (!window.confirm(`Are you sure you want to delete the knowledge file "${source.fileName}"? This cannot be undone.`)) {
+                return;
+            }
+
+            // Delete vectors from DB
+            await ragService.deleteSource(sourceId);
+
+            // Update character state
+            const updatedCharacter = {
+                ...character,
+                ragSources: character.ragSources?.filter(s => s.id !== sourceId)
+            };
+            
+            await handleSaveCharacter(updatedCharacter);
+            logger.log(`Deleted RAG source "${source.fileName}" for character ${character.name}`);
+        } catch (error) {
+            logger.error("Failed to delete RAG source:", error);
+            alert(`Failed to delete knowledge source. Check logs for details.`);
+        }
+    };
+
 
     const handleCreateChat = (name: string, characterIds: string[]) => {
         const newSession: ChatSession = {
@@ -346,18 +394,22 @@ export const MainLayout: React.FC = () => {
         URL.revokeObjectURL(url);
     };
 
-    const handleExportBackup = async () => {
+    const handleSaveBackup = useCallback(async () => {
         try {
-            const data = await loadData();
+            const dataToExport = {
+                spec: 'ai_nexus_backup',
+                version: '1.0',
+                data: appData
+            };
             const timestamp = new Date().toISOString().split('T')[0];
             const filename = `ai-nexus-backup-${timestamp}.json`;
-            triggerDownload(filename, data);
-            logger.log("Full backup exported successfully.", { filename });
+            triggerDownload(filename, dataToExport);
+            logger.log("Full backup saved successfully.", { filename });
         } catch (error) {
-            logger.error("Failed to export backup.", error);
-            alert("Failed to export backup. Check logs for details.");
+            logger.error("Failed to save backup.", error);
+            alert("Failed to save backup. Check logs for details.");
         }
-    };
+    }, [appData]);
 
     const handleExportCharacter = async (characterId: string) => {
         const character = appData.characters.find(c => c.id === characterId);
@@ -394,18 +446,29 @@ export const MainLayout: React.FC = () => {
                 const text = e.target?.result as string;
                 const data = JSON.parse(text);
 
-                // 1. Check for AI Nexus Full Backup
-                if (data.characters && data.chatSessions) {
+                // 1. Check for AI Nexus Full Backup (new format)
+                if (data.spec === 'ai_nexus_backup' && data.data) {
                     if (window.confirm('This appears to be a full backup. Importing it will overwrite all current data. Are you sure?')) {
-                        await persistData(data);
+                        await persistData(data.data);
                         logger.log("Full backup imported successfully! Reloading application...");
                         alert('Backup restored successfully! The application will now reload.');
                         window.location.reload();
                     }
                     return;
                 }
+                
+                // 2. Check for AI Nexus Full Backup (Legacy format)
+                if (data.characters && data.chatSessions) {
+                    if (window.confirm('This appears to be a full backup. Importing it will overwrite all current data. Are you sure?')) {
+                        await persistData(data);
+                        logger.log("Legacy backup imported successfully! Reloading application...");
+                        alert('Backup restored successfully! The application will now reload.');
+                        window.location.reload();
+                    }
+                    return;
+                }
 
-                // 2. Check for Character Card
+                // 3. Check for Character Card
                 const importedChar = compatibilityService.v2ToNexus(data);
                 if (importedChar) {
                     // Asynchronously verify signature if it exists
@@ -437,7 +500,7 @@ export const MainLayout: React.FC = () => {
                     return;
                 }
 
-                // 3. Check for AI Nexus Chat Session
+                // 4. Check for AI Nexus Chat Session
                 if (data.id && Array.isArray(data.messages) && Array.isArray(data.characterIds)) {
                     const newSession: ChatSession = { ...data, id: crypto.randomUUID() }; // new ID to prevent collision
                     const updatedData = { ...appData, chatSessions: [...appData.chatSessions, newSession] };
@@ -539,6 +602,23 @@ export const MainLayout: React.FC = () => {
         }
         return processedData as R;
     }, [appData.plugins, sandboxes]);
+    
+    const handleGenerateImage = useCallback(async (prompt: string): Promise<string | null> => {
+        try {
+            const imagePlugin = appData.plugins?.find(p => p.id === 'default-image-generator');
+            if (!imagePlugin) {
+                throw new Error("Image generation plugin not found.");
+            }
+            logger.log("Generating avatar with prompt:", prompt);
+            const imageUrl = await geminiService.generateImageFromPrompt(prompt, imagePlugin.settings);
+            logger.log("Avatar generated successfully.");
+            return imageUrl;
+        } catch (error) {
+            logger.error("Failed to generate avatar image:", error);
+            alert(`Avatar generation failed. Please check plugin settings and logs. Details: ${error instanceof Error ? error.message : String(error)}`);
+            return null;
+        }
+    }, [appData.plugins]);
 
     const renderMainContent = () => {
         const selectedChat = appData.chatSessions.find(s => s.id === selectedChatId);
@@ -549,6 +629,8 @@ export const MainLayout: React.FC = () => {
                     character={editingCharacter} 
                     onSave={handleSaveCharacter} 
                     onCancel={() => setView('chat')}
+                    onDeleteRagSource={handleDeleteRagSource}
+                    onGenerateImage={handleGenerateImage}
                 />;
             case 'plugins':
                 return <PluginManager
@@ -568,6 +650,7 @@ export const MainLayout: React.FC = () => {
                         onTriggerHook={triggerPluginHook}
                         onCharacterUpdate={handleCharacterUpdate}
                         onMemoryImport={handleMemoryImport}
+                        onSaveBackup={handleSaveBackup}
                     />
                 ) : (
                     <div className="flex-1 flex items-center justify-center bg-nexus-gray-light-200 dark:bg-nexus-gray-900">
@@ -623,9 +706,9 @@ export const MainLayout: React.FC = () => {
                         <UploadIcon className="w-4 h-4" />
                         <span>Import</span>
                     </button>
-                    <button onClick={handleExportBackup} title="Export Full Backup" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors">
+                    <button onClick={handleSaveBackup} title="Save Full Backup" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors">
                         <DownloadIcon className="w-4 h-4" />
-                        <span>Export Backup</span>
+                        <span>Save Backup</span>
                     </button>
                     <button onClick={() => setView('plugins')} title="Manage Plugins" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors">
                         <CodeIcon className="w-4 h-4" />

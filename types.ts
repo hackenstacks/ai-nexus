@@ -34,8 +34,22 @@ export interface ApiConfig {
   rateLimit?: number; // Delay in milliseconds between requests
 }
 
+export interface EmbeddingConfig {
+  service: 'gemini' | 'openai';
+  apiKey?: string;
+  apiEndpoint?: string;
+  model?: string;
+}
+
+export interface RagSource {
+    id: string;
+    fileName: string;
+    fileType: string;
+    createdAt: string;
+}
+
 export interface Character {
-  id: string;
+  id:string;
   name: string;
   description: string;
   personality: string; // Will be used as Role Instruction
@@ -49,6 +63,10 @@ export interface Character {
   lore?: string[];
   memory?: string;
   voiceURI?: string; // For Text-to-Speech
+  // New RAG fields
+  ragEnabled?: boolean;
+  embeddingConfig?: EmbeddingConfig;
+  ragSources?: RagSource[];
   // New security fields
   keys?: CryptoKeys; // Character's own signing key pair
   signature?: string; // Signed by the USER's master private key
@@ -88,4 +106,13 @@ export interface PluginApiResponse {
   ticket: number;
   result?: any;
   error?: string;
+}
+
+// RAG Types
+export interface VectorChunk {
+    id: string; // chunk-[uuid]
+    characterId: string;
+    sourceId: string;
+    content: string;
+    embedding: number[];
 }

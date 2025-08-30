@@ -1,11 +1,19 @@
-import React, { useState, useEffect } from 'react';
-import { Character, ApiConfig } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { Character, ApiConfig, EmbeddingConfig, RagSource } from '../types';
 import * as ttsService from '../services/ttsService';
+import * as ragService from '../services/ragService';
+import { logger } from '../services/loggingService';
+import { TrashIcon } from './icons/TrashIcon';
+import { UploadIcon } from './icons/UploadIcon';
+import { SparklesIcon } from './icons/SparklesIcon';
+import { SpinnerIcon } from './icons/SpinnerIcon';
 
 interface CharacterFormProps {
   character: Character | null;
   onSave: (character: Character) => void;
   onCancel: () => void;
+  onDeleteRagSource: (characterId: string, sourceId: string) => Promise<void>;
+  onGenerateImage: (prompt: string) => Promise<string | null>;
 }
 
 const defaultApiConfig: ApiConfig = {
@@ -15,8 +23,16 @@ const defaultApiConfig: ApiConfig = {
     model: ''
 };
 
-const Section: React.FC<{ title: string, children: React.ReactNode }> = ({ title, children }) => {
-    const [isOpen, setIsOpen] = useState(true);
+const defaultEmbeddingConfig: EmbeddingConfig = {
+    service: 'gemini',
+    apiKey: '',
+    apiEndpoint: 'http://localhost:11434/api/embeddings',
+    model: 'nomic-embed-text'
+};
+
+
+const Section: React.FC<{ title: string, children: React.ReactNode, defaultOpen?: boolean }> = ({ title, children, defaultOpen = true }) => {
+    const [isOpen, setIsOpen] = useState(defaultOpen);
     return (
         <div className="rounded-md border border-nexus-gray-light-400 dark:border-nexus-gray-700 bg-nexus-gray-light-200/50 dark:bg-nexus-gray-800/50">
             <button type="button" onClick={() => setIsOpen(!isOpen)} className="w-full text-left p-4 flex justify-between items-center">
@@ -28,19 +44,14 @@ const Section: React.FC<{ title: string, children: React.ReactNode }> = ({ title
     );
 }
 
-export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave, onCancel }) => {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [personality, setPersonality] = useState('');
-  const [avatarUrl, setAvatarUrl] = useState('');
-  const [tags, setTags] = useState('');
-  const [apiConfig, setApiConfig] = useState<ApiConfig>(defaultApiConfig);
-  const [physicalAppearance, setPhysicalAppearance] = useState('');
-  const [personalityTraits, setPersonalityTraits] = useState('');
-  const [lore, setLore] = useState<string[]>([]);
-  const [memory, setMemory] = useState('');
-  const [voiceURI, setVoiceURI] = useState('');
+export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave, onCancel, onDeleteRagSource, onGenerateImage }) => {
+  const [formState, setFormState] = useState<Character>({} as Character);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [indexingStatus, setIndexingStatus] = useState<string | null>(null);
+  const [isGeneratingAvatar, setIsGeneratingAvatar] = useState(false);
+  
+  const ragFileInputRef = useRef<HTMLInputElement>(null);
+  const avatarFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (ttsService.isSupported()) {
@@ -54,66 +65,143 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
 
   useEffect(() => {
     if (character) {
-      setName(character.name);
-      setDescription(character.description);
-      setPersonality(character.personality);
-      setAvatarUrl(character.avatarUrl);
-      setTags(character.tags.join(', '));
-      setApiConfig(character.apiConfig || defaultApiConfig);
-      setPhysicalAppearance(character.physicalAppearance || '');
-      setPersonalityTraits(character.personalityTraits || '');
-      setLore(character.lore || []);
-      setMemory(character.memory || 'No memories yet.');
-      setVoiceURI(character.voiceURI || '');
+        setFormState({
+            ...character,
+            tags: character.tags || [],
+            lore: character.lore || [],
+            memory: character.memory || 'No memories yet.',
+            ragSources: character.ragSources || [],
+            embeddingConfig: character.embeddingConfig || defaultEmbeddingConfig,
+            apiConfig: character.apiConfig || defaultApiConfig,
+        });
     } else {
-        setName('');
-        setDescription('');
-        setPersonality('');
-        setAvatarUrl('');
-        setTags('');
-        setApiConfig(defaultApiConfig);
-        setPhysicalAppearance('');
-        setPersonalityTraits('');
-        setLore([]);
-        setMemory('No memories yet.');
-        setVoiceURI('');
+        setFormState({
+            id: '', // Will be set on save
+            name: '',
+            description: '',
+            personality: '',
+            avatarUrl: '',
+            tags: [],
+            createdAt: '', // Will be set on save
+            physicalAppearance: '',
+            personalityTraits: '',
+            lore: [],
+            memory: 'No memories yet.',
+            voiceURI: '',
+            apiConfig: defaultApiConfig,
+            ragEnabled: false,
+            embeddingConfig: defaultEmbeddingConfig,
+            ragSources: [],
+        });
     }
   }, [character]);
 
+  const handleFormChange = <K extends keyof Character>(key: K, value: Character[K]) => {
+      setFormState(prev => ({ ...prev, [key]: value }));
+  };
+  
   const handleApiConfigChange = <K extends keyof ApiConfig>(key: K, value: ApiConfig[K]) => {
-      setApiConfig(prev => ({ ...prev, [key]: value }));
+      setFormState(prev => ({ ...prev, apiConfig: { ...prev.apiConfig!, [key]: value }}));
+  };
+  
+  const handleEmbeddingConfigChange = <K extends keyof EmbeddingConfig>(key: K, value: EmbeddingConfig[K]) => {
+      setFormState(prev => ({ ...prev, embeddingConfig: { ...prev.embeddingConfig!, [key]: value }}));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!formState.name.trim()) return;
 
-    const newCharacter: Character = {
+    const characterToSave: Character = {
+      ...formState,
       id: character?.id || crypto.randomUUID(),
-      name,
-      description,
-      personality,
-      avatarUrl,
-      tags: tags.split(',').map(tag => tag.trim()).filter(Boolean),
       createdAt: character?.createdAt || new Date().toISOString(),
-      physicalAppearance,
-      personalityTraits,
-      lore,
-      memory: character?.memory || '',
-      voiceURI,
       apiConfig: {
-        ...apiConfig,
-        apiKey: apiConfig.apiKey?.trim(),
-        apiEndpoint: apiConfig.apiEndpoint?.trim(),
-        model: apiConfig.model?.trim(),
+        ...formState.apiConfig,
+        apiKey: formState.apiConfig?.apiKey?.trim(),
+        apiEndpoint: formState.apiConfig?.apiEndpoint?.trim(),
+        model: formState.apiConfig?.model?.trim(),
       },
+       embeddingConfig: {
+        ...formState.embeddingConfig,
+        apiKey: formState.embeddingConfig?.apiKey?.trim(),
+        apiEndpoint: formState.embeddingConfig?.apiEndpoint?.trim(),
+        model: formState.embeddingConfig?.model?.trim(),
+      }
     };
-    onSave(newCharacter);
+    onSave(characterToSave);
   };
   
-  const handleGenerateAvatar = () => {
-    const seed = name || crypto.randomUUID();
-    setAvatarUrl(`https://picsum.photos/seed/${seed}/200/200`);
+  const handleRagFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file || !character) return;
+      
+      try {
+        setIndexingStatus(`Processing "${file.name}"...`);
+        const newSource = await ragService.processAndIndexFile(file, character, (progress) => {
+            setIndexingStatus(progress);
+        });
+
+        const updatedCharacter = {
+            ...formState,
+            ragSources: [...(formState.ragSources || []), newSource]
+        };
+        setFormState(updatedCharacter);
+        onSave(updatedCharacter); // Persist the new source
+        setIndexingStatus(`Successfully indexed "${file.name}"!`);
+      } catch (error) {
+        logger.error("File indexing failed:", error);
+        setIndexingStatus(`Error indexing "${file.name}": ${error instanceof Error ? error.message : "Unknown error"}`);
+      } finally {
+        if(ragFileInputRef.current) ragFileInputRef.current.value = "";
+        setTimeout(() => setIndexingStatus(null), 5000);
+      }
+  };
+
+  const handleAvatarFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) { // 2MB limit
+      alert("File is too large. Please select an image under 2MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      handleFormChange('avatarUrl', reader.result as string);
+    };
+    reader.onerror = (error) => {
+        logger.error("Failed to read avatar file:", error);
+        alert("Failed to read file.");
+    };
+    reader.readAsDataURL(file);
+    if(avatarFileInputRef.current) avatarFileInputRef.current.value = "";
+  };
+
+  const generateAvatar = async (prompt: string) => {
+    setIsGeneratingAvatar(true);
+    try {
+        const imageUrl = await onGenerateImage(prompt);
+        if (imageUrl) {
+            handleFormChange('avatarUrl', imageUrl);
+        }
+    } finally {
+        setIsGeneratingAvatar(false);
+    }
+  };
+
+  const handleGenerateFromPrompt = () => {
+    const prompt = window.prompt("Enter a prompt for the new avatar:");
+    if (prompt) {
+        generateAvatar(prompt);
+    }
+  };
+
+  const handleGenerateFromDescription = () => {
+    if (formState.physicalAppearance?.trim()) {
+        generateAvatar(formState.physicalAppearance);
+    }
   };
 
   return (
@@ -129,34 +217,61 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
               <input
                 id="name"
                 type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                value={formState.name || ''}
+                onChange={(e) => handleFormChange('name', e.target.value)}
                 required
                 className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
               />
             </div>
              <div>
-              <label htmlFor="avatarUrl" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Avatar URL</label>
-              <div className="mt-1 flex rounded-md shadow-sm">
-                <input
+              <label className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Avatar</label>
+              <div className="mt-2 flex items-center space-x-6">
+                 <div className="relative flex-shrink-0">
+                    <img
+                        src={formState.avatarUrl || 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='}
+                        alt="Avatar Preview"
+                        className="w-24 h-24 rounded-full object-cover bg-nexus-gray-light-300 dark:bg-nexus-gray-700 border border-nexus-gray-light-400 dark:border-nexus-gray-600"
+                    />
+                    {isGeneratingAvatar && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-full">
+                            <SpinnerIcon className="animate-spin h-8 w-8 text-white" />
+                        </div>
+                    )}
+                 </div>
+                 <div className="flex-grow space-y-2">
+                    <input type="file" ref={avatarFileInputRef} onChange={handleAvatarFileChange} accept="image/png, image/jpeg, image/webp" className="hidden" />
+                    <button type="button" onClick={() => avatarFileInputRef.current?.click()} className="w-full flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors">
+                        <UploadIcon className="w-4 h-4" />
+                        <span>Upload File</span>
+                    </button>
+                    <button type="button" onClick={handleGenerateFromDescription} disabled={!formState.physicalAppearance?.trim() || isGeneratingAvatar} className="w-full flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                        <SparklesIcon className="w-4 h-4" />
+                        <span>Generate from Description</span>
+                    </button>
+                     <button type="button" onClick={handleGenerateFromPrompt} disabled={isGeneratingAvatar} className="w-full flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors">
+                        <SparklesIcon className="w-4 h-4" />
+                        <span>Generate from Prompt...</span>
+                    </button>
+                 </div>
+              </div>
+              <div className="mt-4">
+                <label htmlFor="avatarUrl" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Or paste image URL</label>
+                 <input
                   id="avatarUrl"
                   type="text"
-                  value={avatarUrl}
-                  onChange={(e) => setAvatarUrl(e.target.value)}
-                  className="flex-1 block w-full min-w-0 bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-none rounded-l-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                  value={formState.avatarUrl || ''}
+                  onChange={(e) => handleFormChange('avatarUrl', e.target.value)}
+                  className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
                   placeholder="https://example.com/avatar.png"
                 />
-                 <button type="button" onClick={handleGenerateAvatar} className="relative -ml-px inline-flex items-center space-x-2 px-4 py-2 border border-nexus-gray-light-400 dark:border-nexus-gray-700 text-sm font-medium rounded-r-md text-nexus-gray-800 dark:text-nexus-gray-300 bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 focus:outline-none focus:ring-1 focus:ring-nexus-blue-500 focus:border-nexus-blue-500">
-                    <span>Generate</span>
-                 </button>
               </div>
             </div>
             <div>
               <label htmlFor="description" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Description</label>
               <textarea
                 id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
+                value={formState.description || ''}
+                onChange={(e) => handleFormChange('description', e.target.value)}
                 rows={3}
                 className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
                 placeholder="A brief, one-sentence description of the character."
@@ -167,8 +282,8 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
               <input
                 id="tags"
                 type="text"
-                value={tags}
-                onChange={(e) => setTags(e.target.value)}
+                value={(formState.tags || []).join(', ')}
+                onChange={(e) => handleFormChange('tags', e.target.value.split(',').map(tag => tag.trim()))}
                 className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
                 placeholder="Comma-separated, e.g., sci-fi, assistant, funny"
               />
@@ -180,8 +295,8 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
               <label htmlFor="physicalAppearance" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Physical Appearance</label>
               <textarea
                 id="physicalAppearance"
-                value={physicalAppearance}
-                onChange={(e) => setPhysicalAppearance(e.target.value)}
+                value={formState.physicalAppearance || ''}
+                onChange={(e) => handleFormChange('physicalAppearance', e.target.value)}
                 rows={3}
                 className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
                 placeholder="Describe the character's physical appearance in detail."
@@ -192,8 +307,8 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
               <input
                 id="personalityTraits"
                 type="text"
-                value={personalityTraits}
-                onChange={(e) => setPersonalityTraits(e.target.value)}
+                value={formState.personalityTraits || ''}
+                onChange={(e) => handleFormChange('personalityTraits', e.target.value)}
                 className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
                 placeholder="Comma-separated traits, e.g., witty, sarcastic, kind, curious"
               />
@@ -203,8 +318,8 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
                 <label htmlFor="voice" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Voice</label>
                 <select
                   id="voice"
-                  value={voiceURI}
-                  onChange={(e) => setVoiceURI(e.target.value)}
+                  value={formState.voiceURI || ''}
+                  onChange={(e) => handleFormChange('voiceURI', e.target.value)}
                   className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
                 >
                   <option value="">Default Voice</option>
@@ -220,8 +335,8 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
               <label htmlFor="personality" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Role Instruction / System Prompt</label>
               <textarea
                 id="personality"
-                value={personality}
-                onChange={(e) => setPersonality(e.target.value)}
+                value={formState.personality || ''}
+                onChange={(e) => handleFormChange('personality', e.target.value)}
                 rows={8}
                 className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
                 placeholder="Describe the character's personality, quirks, and conversation style. This is the main system prompt that guides the AI's behavior."
@@ -235,8 +350,8 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
                 <p className="text-xs text-nexus-gray-700 dark:text-nexus-gray-400 mb-1">Key facts about the character. Add new facts in chat with '/lore [fact]'. One fact per line.</p>
                 <textarea
                     id="lore"
-                    value={lore.join('\n')}
-                    onChange={(e) => setLore(e.target.value.split('\n'))}
+                    value={(formState.lore || []).join('\n')}
+                    onChange={(e) => handleFormChange('lore', e.target.value.split('\n'))}
                     rows={8}
                     className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
                     placeholder="Fact 1 about the character...&#10;Fact 2 about the character..."
@@ -247,7 +362,7 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
                  <p className="text-xs text-nexus-gray-700 dark:text-nexus-gray-400 mb-1">Automatically summarized highlights from conversations.</p>
                 <textarea
                     id="memory"
-                    value={memory}
+                    value={formState.memory || ''}
                     readOnly
                     rows={6}
                     className="mt-1 block w-full bg-nexus-gray-light-300 dark:bg-nexus-dark border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-800 dark:text-nexus-gray-300 focus:outline-none cursor-not-allowed"
@@ -255,13 +370,13 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
             </div>
         </Section>
         
-        <Section title="API Configuration">
+        <Section title="Chat API Configuration" defaultOpen={false}>
             <div className="space-y-4">
                 <div>
                     <label htmlFor="api-service" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">API Service</label>
                     <select 
                         id="api-service"
-                        value={apiConfig.service}
+                        value={formState.apiConfig?.service || 'default'}
                         onChange={(e) => handleApiConfigChange('service', e.target.value as ApiConfig['service'])}
                         className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
                     >
@@ -270,27 +385,27 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
                         <option value="openai">OpenAI-Compatible (e.g., Ollama)</option>
                     </select>
                 </div>
-                {apiConfig.service === 'gemini' && (
+                {formState.apiConfig?.service === 'gemini' && (
                      <div>
                         <label htmlFor="api-key" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Gemini API Key</label>
                         <input
                             id="api-key"
                             type="password"
-                            value={apiConfig.apiKey}
+                            value={formState.apiConfig.apiKey || ''}
                             onChange={(e) => handleApiConfigChange('apiKey', e.target.value)}
                             className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
                             placeholder="Enter your Gemini API key"
                         />
                     </div>
                 )}
-                 {apiConfig.service === 'openai' && (
+                 {formState.apiConfig?.service === 'openai' && (
                     <>
                         <div>
                             <label htmlFor="api-endpoint" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">API Endpoint</label>
                             <input
                                 id="api-endpoint"
                                 type="text"
-                                value={apiConfig.apiEndpoint}
+                                value={formState.apiConfig.apiEndpoint || ''}
                                 onChange={(e) => handleApiConfigChange('apiEndpoint', e.target.value)}
                                 className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
                                 placeholder="e.g., http://localhost:11434/v1/chat/completions"
@@ -301,7 +416,7 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
                             <input
                                 id="api-key"
                                 type="password"
-                                value={apiConfig.apiKey}
+                                value={formState.apiConfig.apiKey || ''}
                                 onChange={(e) => handleApiConfigChange('apiKey', e.target.value)}
                                 className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
                                 placeholder="API Key (optional for some services)"
@@ -312,7 +427,7 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
                             <input
                                 id="api-model"
                                 type="text"
-                                value={apiConfig.model}
+                                value={formState.apiConfig.model || ''}
                                 onChange={(e) => handleApiConfigChange('model', e.target.value)}
                                 className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
                                 placeholder="e.g., llama3"
@@ -320,13 +435,13 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
                         </div>
                     </>
                 )}
-                {(apiConfig.service === 'gemini' || apiConfig.service === 'openai') && (
+                {(formState.apiConfig?.service === 'gemini' || formState.apiConfig?.service === 'openai') && (
                     <div>
                         <label htmlFor="api-rate-limit" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Request Delay (ms)</label>
                         <input
                             id="api-rate-limit"
                             type="number"
-                            value={apiConfig.rateLimit || ''}
+                            value={formState.apiConfig.rateLimit || ''}
                             onChange={(e) => handleApiConfigChange('rateLimit', e.target.value ? parseInt(e.target.value, 10) : undefined)}
                             className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
                             placeholder="e.g., 1000 (for 1 request per second)"
@@ -336,6 +451,114 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
                     </div>
                 )}
             </div>
+        </Section>
+
+        <Section title="Retrieval-Augmented Generation (RAG)" defaultOpen={false}>
+            <div className="flex items-center space-x-3">
+                <label htmlFor="rag-enabled" className="text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Enable RAG</label>
+                <button
+                    type="button"
+                    onClick={() => handleFormChange('ragEnabled', !formState.ragEnabled)}
+                    className={`${formState.ragEnabled ? 'bg-nexus-blue-600' : 'bg-nexus-gray-light-400 dark:bg-nexus-gray-600'} relative inline-flex h-6 w-11 items-center rounded-full`}
+                    >
+                    <span className={`${formState.ragEnabled ? 'translate-x-6' : 'translate-x-1'} inline-block h-4 w-4 transform rounded-full bg-white transition`}/>
+                </button>
+            </div>
+            {formState.ragEnabled && (
+                <div className="space-y-4 pt-4 border-t border-nexus-gray-light-400 dark:border-nexus-gray-700 mt-4">
+                     <p className="text-xs text-nexus-gray-700 dark:text-nexus-gray-400">
+                        Enable this to allow the character to retrieve information from uploaded documents to answer questions. An embedding API is required.
+                     </p>
+                    
+                    <h4 className="text-md font-semibold">Knowledge Base</h4>
+                    <div className="p-2 border border-dashed border-nexus-gray-500 dark:border-nexus-gray-600 rounded-md space-y-2">
+                        {(formState.ragSources || []).map(source => (
+                            <div key={source.id} className="flex items-center justify-between bg-nexus-gray-light-300 dark:bg-nexus-gray-700 p-2 rounded">
+                                <span className="text-sm truncate">{source.fileName}</span>
+                                <button type="button" onClick={() => onDeleteRagSource(character!.id, source.id)} className="p-1 text-red-500 hover:text-red-400">
+                                    <TrashIcon className="w-4 h-4" />
+                                </button>
+                            </div>
+                        ))}
+                         {character && (
+                            <>
+                                <input type="file" ref={ragFileInputRef} onChange={handleRagFileUpload} accept=".txt,.md" className="hidden" disabled={!!indexingStatus} />
+                                <button type="button" onClick={() => ragFileInputRef.current?.click()} disabled={!!indexingStatus} className="w-full flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-400 dark:bg-nexus-gray-600 hover:bg-nexus-gray-light-500 dark:hover:bg-nexus-gray-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <UploadIcon className="w-4 h-4" />
+                                    <span>Upload Knowledge File (.txt, .md)</span>
+                                </button>
+                            </>
+                        )}
+                        {indexingStatus && <p className="text-xs text-center text-nexus-gray-700 dark:text-nexus-gray-400 p-2">{indexingStatus}</p>}
+                    </div>
+
+                    <h4 className="text-md font-semibold pt-4 border-t border-nexus-gray-light-400 dark:border-nexus-gray-700">Embedding API Configuration</h4>
+                    <div className="space-y-4">
+                        <div>
+                            <label htmlFor="embed-api-service" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Embedding Service</label>
+                            <select 
+                                id="embed-api-service"
+                                value={formState.embeddingConfig?.service || 'gemini'}
+                                onChange={(e) => handleEmbeddingConfigChange('service', e.target.value as EmbeddingConfig['service'])}
+                                className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                            >
+                                <option value="gemini">Google Gemini</option>
+                                <option value="openai">OpenAI-Compatible (e.g., Ollama)</option>
+                            </select>
+                        </div>
+                         {formState.embeddingConfig?.service === 'gemini' && (
+                             <div>
+                                <label htmlFor="embed-api-key" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Gemini API Key</label>
+                                <input
+                                    id="embed-api-key"
+                                    type="password"
+                                    value={formState.embeddingConfig.apiKey || ''}
+                                    onChange={(e) => handleEmbeddingConfigChange('apiKey', e.target.value)}
+                                    className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                                    placeholder="Leave blank to use default key"
+                                />
+                            </div>
+                        )}
+                         {formState.embeddingConfig?.service === 'openai' && (
+                            <>
+                                <div>
+                                    <label htmlFor="embed-api-endpoint" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">API Endpoint</label>
+                                    <input
+                                        id="embed-api-endpoint"
+                                        type="text"
+                                        value={formState.embeddingConfig.apiEndpoint || ''}
+                                        onChange={(e) => handleEmbeddingConfigChange('apiEndpoint', e.target.value)}
+                                        className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                                        placeholder="e.g., http://localhost:11434/api/embeddings"
+                                    />
+                                </div>
+                                <div>
+                                    <label htmlFor="embed-api-key" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">API Key</label>
+                                    <input
+                                        id="embed-api-key"
+                                        type="password"
+                                        value={formState.embeddingConfig.apiKey || ''}
+                                        onChange={(e) => handleEmbeddingConfigChange('apiKey', e.target.value)}
+                                        className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                                        placeholder="API Key (optional for some services)"
+                                    />
+                                </div>
+                                <div>
+                                    <label htmlFor="embed-api-model" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Model Name</label>
+                                    <input
+                                        id="embed-api-model"
+                                        type="text"
+                                        value={formState.embeddingConfig.model || ''}
+                                        onChange={(e) => handleEmbeddingConfigChange('model', e.target.value)}
+                                        className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                                        placeholder="e.g., nomic-embed-text"
+                                    />
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
         </Section>
        
         <div className="flex justify-end space-x-4 pt-4">
