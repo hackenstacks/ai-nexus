@@ -1,12 +1,12 @@
 # AI Nexus
 
-AI Nexus is a sophisticated, browser-based AI character generator and chat platform. It empowers users to create, manage, and interact with complex AI personalities with rich, persistent memory and lore. The application is designed with privacy in mind, featuring simulated end-to-end encryption for all local data, and offers a powerful plugin system to extend its capabilities.
+AI Nexus is a sophisticated, browser-based AI character generator and chat platform. It empowers users to create, manage, and interact with complex AI personalities with rich, persistent memory and lore. The application is designed with privacy in mind, featuring strong, production-grade end-to-end encryption for all local data, and offers a powerful plugin system to extend its capabilities.
 
 It is designed for interoperability, supporting the import and export of character cards from other popular platforms.
 
 ## ✨ Features
 
-- **🔒 Secure Local Storage**: All your characters, conversations, and plugins are stored locally in your browser's IndexedDB and encrypted with a master password.
+- **🔒 Secure Local Storage**: All your characters, conversations, and plugins are stored locally in your browser's IndexedDB and encrypted with a master password using the Web Crypto API (PBKDF2 and AES-GCM).
 - **Compatibility First**:
   - **Import Character Cards**: Import character `.json` files compatible with formats like Character Card V2 used by TavernAI, SillyTavern, Chub, etc.
   - **Export Universal Cards**: Export your characters in a compatible V2 format, including a base64-encoded avatar, for use in other applications.
@@ -77,10 +77,10 @@ The application is designed to use an API key from a `process.env.API_KEY` envir
 ## 🔧 Troubleshooting & FAQ
 
 **Q: The app is asking me to create a password on the first run. What is this for?**
-A: This master password is used to encrypt all your data (characters, chats, etc.) before it's saved to your browser's local storage (IndexedDB). This ensures your data remains private on your machine. You will need this password every time you open the app.
+A: This master password is used to encrypt all your data (characters, chats, etc.) before it's saved to your browser's local storage (IndexedDB). Your password is never stored; instead, it's processed with a unique salt through a key derivation function (PBKDF2) to generate a secure encryption key. The data is then encrypted using the AES-GCM authenticated encryption standard via the Web Crypto API. This ensures your data remains private and secure on your machine. You will need this password every time you open the app.
 
 **Q: I forgot my master password. Can I recover it?**
-A: No. Due to the local encryption model, there is no password recovery. The only way to regain access is to clear your browser's site data for the application, which will delete all your encrypted data.
+A: No. Due to the local, zero-knowledge encryption model, there is no password recovery. The only way to regain access is to clear your browser's site data for the application, which will delete all your encrypted data permanently.
 
 **Q: How do I import a character from another program?**
 A: Use the "Import" button in the bottom-left sidebar. Select the character's `.json` file. AI Nexus will automatically detect it's a character card and add it to your character list without overwriting your other data.

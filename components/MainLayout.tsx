@@ -23,6 +23,9 @@ import { CodeIcon } from './icons/CodeIcon';
 import { TerminalIcon } from './icons/TerminalIcon';
 import { HelpIcon } from './icons/HelpIcon';
 import { PlusIcon } from './icons/PlusIcon';
+import { ChatBubbleIcon } from './icons/ChatBubbleIcon';
+import { UsersIcon } from './icons/UsersIcon';
+
 
 const defaultImagePlugin: Plugin = {
     id: 'default-image-generator',
@@ -86,6 +89,8 @@ nexus.log('TTS Plugin loaded (Core Feature).');
 
 
 type View = 'chat' | 'form' | 'plugins';
+type ActivePanel = 'chats' | 'characters' | 'none';
+type ActiveView = 'chats' | 'characters' | 'plugins';
 
 export const MainLayout: React.FC = () => {
     const [appData, setAppData] = useState<AppData>({ characters: [], chatSessions: [], plugins: [] });
@@ -93,11 +98,13 @@ export const MainLayout: React.FC = () => {
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
     const [editingCharacter, setEditingCharacter] = useState<Character | null>(null);
     const [view, setView] = useState<View>('chat');
+    const [activeView, setActiveView] = useState<ActiveView>('chats');
 
     const [isLogViewerVisible, setIsLogViewerVisible] = useState(false);
     const [isHelpVisible, setIsHelpVisible] = useState(false);
     const [isChatModalVisible, setIsChatModalVisible] = useState(false);
     const [confirmationRequest, setConfirmationRequest] = useState<ConfirmationRequest | null>(null);
+    const [activePanel, setActivePanel] = useState<ActivePanel>('chats');
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const sandboxes = useRef(new Map<string, PluginSandbox>()).current;
@@ -105,6 +112,10 @@ export const MainLayout: React.FC = () => {
     const persistData = useCallback(async (data: AppData) => {
         await saveData(data);
     }, []);
+
+    const handlePanelToggle = (panel: ActivePanel) => {
+        setActivePanel(prev => (prev === panel ? 'none' : panel));
+    };
 
     // Secure handler for API requests coming from plugin sandboxes
     const handlePluginApiRequest = useCallback(async (request: GeminiApiRequest) => {
@@ -170,6 +181,13 @@ export const MainLayout: React.FC = () => {
             setAppData(data);
             if (data.chatSessions.length > 0) {
                 setSelectedChatId(data.chatSessions[0].id);
+                setActiveView('chats');
+            } else {
+                // If there are no chats but there are characters, open the character panel
+                if (data.characters.length > 0) {
+                    setActivePanel('characters');
+                    setActiveView('characters');
+                }
             }
             logger.log("Application data loaded successfully.", { characters: data.characters.length, sessions: data.chatSessions.length, plugins: data.plugins.length });
         };
@@ -253,6 +271,7 @@ export const MainLayout: React.FC = () => {
         }
         
         setView('chat');
+        setActiveView('chats');
         if (isNew) {
            setEditingCharacter(null);
         }
@@ -301,7 +320,6 @@ export const MainLayout: React.FC = () => {
         });
     };
 
-    // FIX: Make the function async to match the prop type expected by CharacterForm.
     const handleDeleteRagSource = async (characterId: string, sourceId: string) => {
         const character = appData.characters.find(c => c.id === characterId);
         if (!character) return;
@@ -330,7 +348,6 @@ export const MainLayout: React.FC = () => {
         });
     };
 
-
     const handleCreateChat = (name: string, characterIds: string[]) => {
         const newSession: ChatSession = {
             id: crypto.randomUUID(),
@@ -343,8 +360,10 @@ export const MainLayout: React.FC = () => {
         setAppData(updatedData);
         persistData(updatedData);
         setSelectedChatId(newSession.id);
+        setActiveView('chats');
         setIsChatModalVisible(false);
         logger.log(`New chat created: "${name}"`);
+        setActivePanel('none');
     };
 
     const handleDeleteChat = (sessionId: string) => {
@@ -369,17 +388,23 @@ export const MainLayout: React.FC = () => {
     const handleEditCharacter = (character: Character) => {
         setEditingCharacter(character);
         setView('form');
+        setActiveView('characters');
+        setActivePanel('none');
     };
     
     const handleAddNewCharacter = () => {
         setEditingCharacter(null);
         setView('form');
+        setActiveView('characters');
+        setActivePanel('none');
     };
 
     const handleSelectChat = (sessionId: string) => {
         setSelectedChatId(sessionId);
         setView('chat');
+        setActiveView('chats');
         setEditingCharacter(null);
+        setActivePanel('none');
     };
 
     const handleSessionUpdate = useCallback((session: ChatSession) => {
@@ -473,23 +498,71 @@ export const MainLayout: React.FC = () => {
                 }
                 const data = JSON.parse(text);
 
+                // Helper to validate the core structure of AppData, now with deeper checks.
+                const isValidAppData = (d: any): d is AppData => {
+                    if (typeof d !== 'object' || d === null) {
+                        logger.debug("Import validation failed: data is not a non-null object.");
+                        return false;
+                    }
+                    
+                    // Check characters array and its contents
+                    if (!Array.isArray(d.characters)) {
+                        logger.debug("Import validation failed: 'characters' is not an array.");
+                        return false;
+                    }
+                    if (d.characters.some((c: any) => typeof c !== 'object' || c === null)) {
+                        logger.debug("Import validation failed: 'characters' array contains non-object or null entries.");
+                        return false;
+                    }
+
+                    // Check chatSessions array and its contents
+                    if (!Array.isArray(d.chatSessions)) {
+                        logger.debug("Import validation failed: 'chatSessions' is not an array.");
+                        return false;
+                    }
+                    if (d.chatSessions.some((s: any) => typeof s !== 'object' || s === null)) {
+                        logger.debug("Import validation failed: 'chatSessions' array contains non-object or null entries.");
+                        return false;
+                    }
+                    
+                    // Check plugins array if it exists
+                    if (d.plugins !== undefined) {
+                        if (!Array.isArray(d.plugins)) {
+                            logger.debug("Import validation failed: 'plugins' exists but is not an array.");
+                            return false;
+                        }
+                        if (d.plugins.some((p: any) => typeof p !== 'object' || p === null)) {
+                            logger.debug("Import validation failed: 'plugins' array contains non-object or null entries.");
+                            return false;
+                        }
+                    }
+
+                    return true;
+                };
+
+
                 // --- Type Identification Logic ---
 
                 // 1. AI Nexus Backup (v1.0+)
-                if (data.spec === 'ai_nexus_backup' && data.data && Array.isArray(data.data.characters)) {
-                    logger.log("Detected AI Nexus full backup format.");
+                if (data.spec === 'ai_nexus_backup' && isValidAppData(data.data)) {
+                    logger.log("Detected valid AI Nexus full backup format.");
                     setConfirmationRequest({
                         message: 'This is a full backup file. Importing it will overwrite all of your current characters, chats, and settings. Are you sure you want to continue?',
                         onConfirm: async () => {
-                            await persistData(data.data);
-                            logger.log("Full backup imported successfully! Reloading application...");
-                            alert('Backup restored successfully! The application will now reload.');
-                            setConfirmationRequest(null);
-                            window.location.reload();
+                            try {
+                                await persistData(data.data);
+                                logger.log("Full backup imported successfully! Reloading application...");
+                                alert('Backup restored successfully! The application will now reload.');
+                                setConfirmationRequest(null);
+                                window.location.reload();
+                            } catch (err) {
+                                logger.error("Failed to save imported backup data.", err);
+                                alert("Could not save the imported backup data. The database might be full or corrupted.");
+                                setConfirmationRequest(null);
+                            }
                         },
                         onCancel: () => {
                             logger.log("Backup import cancelled by user.");
-                            alert("Backup import cancelled.");
                             setConfirmationRequest(null);
                         }
                     });
@@ -528,21 +601,26 @@ export const MainLayout: React.FC = () => {
                     return;
                 }
                 
-                // 3. Legacy Backup (less specific, checked after character card)
-                if (Array.isArray(data.characters) && Array.isArray(data.chatSessions)) {
+                // 3. Legacy Backup (checked after specific formats)
+                if (isValidAppData(data)) {
                     logger.log("Detected legacy backup format.");
                     setConfirmationRequest({
                         message: 'This appears to be a full backup. Importing it will overwrite all current data. Are you sure?',
                         onConfirm: async () => {
-                            await persistData(data); // Legacy format is the raw AppData
-                            logger.log("Legacy backup imported successfully! Reloading application...");
-                            alert('Backup restored successfully! The application will now reload.');
-                            setConfirmationRequest(null);
-                            window.location.reload();
+                             try {
+                                await persistData(data); // Legacy format is the raw AppData
+                                logger.log("Legacy backup imported successfully! Reloading application...");
+                                alert('Backup restored successfully! The application will now reload.');
+                                setConfirmationRequest(null);
+                                window.location.reload();
+                             } catch (err) {
+                                logger.error("Failed to save imported backup data.", err);
+                                alert("Could not save the imported backup data. The database might be full or corrupted.");
+                                setConfirmationRequest(null);
+                            }
                         },
                         onCancel: () => {
                             logger.log("Backup import cancelled by user.");
-                            alert("Backup import cancelled.");
                             setConfirmationRequest(null);
                         }
                     });
@@ -672,6 +750,17 @@ export const MainLayout: React.FC = () => {
         }
     }, [appData.plugins]);
 
+    const handleViewPlugins = () => {
+        setView('plugins');
+        setActiveView('plugins');
+        setActivePanel('none');
+    };
+    
+    const handleCancelForm = () => {
+        setView('chat');
+        setActiveView('chats');
+    }
+
     const renderMainContent = () => {
         const selectedChat = appData.chatSessions.find(s => s.id === selectedChatId);
 
@@ -680,7 +769,7 @@ export const MainLayout: React.FC = () => {
                 return <CharacterForm 
                     character={editingCharacter} 
                     onSave={handleSaveCharacter} 
-                    onCancel={() => setView('chat')}
+                    onCancel={handleCancelForm}
                     onDeleteRagSource={handleDeleteRagSource}
                     onGenerateImage={handleGenerateImage}
                 />;
@@ -707,18 +796,55 @@ export const MainLayout: React.FC = () => {
                         handlePluginApiRequest={handlePluginApiRequest}
                     />
                 ) : (
-                    <div className="flex-1 flex items-center justify-center bg-nexus-gray-light-200 dark:bg-nexus-gray-900">
+                    <div className="flex-1 flex items-center justify-center h-full bg-nexus-gray-light-200 dark:bg-nexus-gray-900">
                         <div className="text-center text-nexus-gray-700 dark:text-nexus-gray-500">
                             <h2 className="text-2xl">Welcome to AI Nexus</h2>
-                            <p>Create a character and start a new chat to begin.</p>
+                            <p>Select a chat or create a new one to begin.</p>
                         </div>
                     </div>
                 );
         }
-    }
+    };
+
+    const renderPanelContent = () => {
+        switch (activePanel) {
+            case 'chats':
+                return (
+                    <>
+                        <div className="flex justify-between items-center mb-2">
+                            <h2 className="text-lg font-semibold text-nexus-gray-900 dark:text-white">Chats</h2>
+                            <button onClick={() => setIsChatModalVisible(true)} className="p-2 rounded-md text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700 hover:text-nexus-gray-900 dark:hover:text-white transition-colors" title="New Chat">
+                                <PlusIcon className="w-5 h-5" />
+                            </button>
+                        </div>
+                        <ChatList 
+                            chatSessions={appData.chatSessions}
+                            characters={appData.characters}
+                            selectedChatId={selectedChatId}
+                            onSelectChat={handleSelectChat}
+                            onDeleteChat={handleDeleteChat}
+                            onExportChat={handleExportChat}
+                        />
+                    </>
+                );
+            case 'characters':
+                return (
+                     <CharacterList 
+                        characters={appData.characters}
+                        onDeleteCharacter={handleDeleteCharacter}
+                        onEditCharacter={handleEditCharacter}
+                        onAddNew={handleAddNewCharacter}
+                        onExportCharacter={handleExportCharacter}
+                    />
+                );
+            case 'none':
+                return null;
+        }
+    };
+
 
     return (
-        <div className="flex h-screen bg-nexus-light dark:bg-nexus-dark text-nexus-gray-900 dark:text-nexus-gray-200 font-sans">
+        <div className="relative h-screen w-screen overflow-hidden bg-nexus-light dark:bg-nexus-dark text-nexus-gray-900 dark:text-nexus-gray-200 font-sans flex">
             {isLogViewerVisible && <LogViewer onClose={() => setIsLogViewerVisible(false)} />}
             {isHelpVisible && <HelpModal onClose={() => setIsHelpVisible(false)} />}
             {isChatModalVisible && <ChatSelectionModal characters={appData.characters} onClose={() => setIsChatModalVisible(false)} onCreateChat={handleCreateChat}/>}
@@ -729,63 +855,46 @@ export const MainLayout: React.FC = () => {
                     onCancel={confirmationRequest.onCancel}
                 />
             )}
-            
-            <aside className="w-80 bg-nexus-gray-light-200 dark:bg-nexus-gray-800 flex flex-col p-4 border-r border-nexus-gray-light-300 dark:border-nexus-gray-700">
-                <div className="flex items-center justify-between mb-4">
-                    <h1 className="text-2xl font-bold text-nexus-gray-900 dark:text-white">AI Nexus</h1>
+
+            <div className="flex-shrink-0 bg-nexus-gray-light-100 dark:bg-nexus-gray-900 w-16 flex flex-col items-center justify-between py-4 border-r border-nexus-gray-light-300 dark:border-nexus-gray-700 z-20">
+                <div className="flex flex-col items-center space-y-2">
+                    <button onClick={() => handlePanelToggle('chats')} title="Chats" className={`p-2 rounded-lg ${activeView === 'chats' ? 'bg-nexus-blue-600 text-white' : 'text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700'}`}>
+                        <ChatBubbleIcon className="w-6 h-6" />
+                    </button>
+                    <button onClick={() => handlePanelToggle('characters')} title="Characters" className={`p-2 rounded-lg ${activeView === 'characters' ? 'bg-nexus-blue-600 text-white' : 'text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700'}`}>
+                        <UsersIcon className="w-6 h-6" />
+                    </button>
+                     <button onClick={handleViewPlugins} title="Plugins" className={`p-2 rounded-lg ${activeView === 'plugins' ? 'bg-nexus-blue-600 text-white' : 'text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700'}`}>
+                        <CodeIcon className="w-6 h-6" />
+                    </button>
+
+                    <div className="w-8 border-t border-nexus-gray-light-300 dark:border-nexus-gray-700 my-2"></div>
+                    
+                    <input type="file" ref={fileInputRef} onChange={handleImportData} accept=".json" className="hidden" />
+                    <button onClick={handleSaveBackup} title="Save Full Backup" className="p-2 rounded-lg text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700">
+                        <DownloadIcon className="w-6 h-6" />
+                    </button>
+                    <button onClick={() => fileInputRef.current?.click()} title="Import Data" className="p-2 rounded-lg text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700">
+                        <UploadIcon className="w-6 h-6" />
+                    </button>
+                    <button onClick={() => setIsLogViewerVisible(true)} title="View Logs" className="p-2 rounded-lg text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700">
+                        <TerminalIcon className="w-6 h-6" />
+                    </button>
+                    <button onClick={() => setIsHelpVisible(true)} title="Help" className="p-2 rounded-lg text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700">
+                        <HelpIcon className="w-6 h-6" />
+                    </button>
+
+                </div>
+                <div className="flex flex-col items-center">
                     <ThemeSwitcher />
                 </div>
+            </div>
 
-                <div className="flex justify-between items-center mb-2">
-                    <h2 className="text-lg font-semibold text-nexus-gray-900 dark:text-white">Chats</h2>
-                    <button onClick={() => setIsChatModalVisible(true)} className="p-2 rounded-md text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700 hover:text-nexus-gray-900 dark:hover:text-white transition-colors" title="New Chat">
-                        <PlusIcon className="w-5 h-5" />
-                    </button>
-                </div>
-                <ChatList 
-                    chatSessions={appData.chatSessions}
-                    characters={appData.characters}
-                    selectedChatId={selectedChatId}
-                    onSelectChat={handleSelectChat}
-                    onDeleteChat={handleDeleteChat}
-                    onExportChat={handleExportChat}
-                />
-                
-                <div className="mt-4 flex-shrink-0">
-                    <CharacterList 
-                        characters={appData.characters}
-                        onDeleteCharacter={handleDeleteCharacter}
-                        onEditCharacter={handleEditCharacter}
-                        onAddNew={handleAddNewCharacter}
-                        onExportCharacter={handleExportCharacter}
-                    />
-                </div>
-
-                <div className="mt-auto pt-4 border-t border-nexus-gray-light-300 dark:border-nexus-gray-700 grid grid-cols-2 gap-2">
-                    <input type="file" ref={fileInputRef} onChange={handleImportData} accept=".json" className="hidden" />
-                    <button onClick={() => fileInputRef.current?.click()} title="Import Character, Chat, or Backup" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors">
-                        <UploadIcon className="w-4 h-4" />
-                        <span>Import</span>
-                    </button>
-                    <button onClick={handleSaveBackup} title="Save Full Backup" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors">
-                        <DownloadIcon className="w-4 h-4" />
-                        <span>Save Backup</span>
-                    </button>
-                    <button onClick={() => setView('plugins')} title="Manage Plugins" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors">
-                        <CodeIcon className="w-4 h-4" />
-                        <span>Plugins</span>
-                    </button>
-                     <button onClick={() => setIsLogViewerVisible(true)} title="View Application Logs" className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors">
-                        <TerminalIcon className="w-4 h-4" />
-                        <span>Logs</span>
-                    </button>
-                    <button onClick={() => setIsHelpVisible(true)} title="Open Help Center" className="col-span-2 flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors">
-                        <HelpIcon className="w-4 h-4" />
-                        <span>Help</span>
-                    </button>
-                </div>
+            <aside className={`flex-shrink-0 transform transition-all duration-300 ease-in-out bg-nexus-gray-light-200 dark:bg-nexus-gray-800 border-r border-nexus-gray-light-300 dark:border-nexus-gray-700 flex flex-col overflow-hidden ${activePanel !== 'none' ? 'w-80 p-4' : 'w-0 p-0 border-r-0'}`}>
+                {renderPanelContent()}
             </aside>
-            <main className="flex-1 flex flex-col">
+            
+            <main className="flex-1 flex flex-col h-full overflow-hidden">
                 {renderMainContent()}
             </main>
         </div>

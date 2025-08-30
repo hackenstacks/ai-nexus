@@ -216,210 +216,218 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
 
   if (editingPlugin || isCreating) {
      return (
-      <div className="flex-1 flex flex-col p-8 bg-nexus-gray-light-200 dark:bg-nexus-gray-900 overflow-y-auto">
-        <h2 className="text-3xl font-bold text-nexus-gray-900 dark:text-white mb-6">{isDefaultImagePlugin ? 'Configure Plugin' : (editingPlugin ? 'Edit Plugin' : 'Create New Plugin')}</h2>
-        <div className="space-y-6">
-          <input
-            type="text"
-            placeholder="Plugin Name"
-            value={formState.name}
-            onChange={(e) => setFormState(s => ({...s, name: e.target.value}))}
-            className="w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-            readOnly={isDefaultImagePlugin || isDefaultTtsPlugin}
-          />
-          <textarea
-            placeholder="Plugin Description"
-            value={formState.description}
-            onChange={(e) => setFormState(s => ({...s, description: e.target.value}))}
-            rows={2}
-            className="w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-            readOnly={isDefaultTtsPlugin}
-          />
-          {isDefaultImagePlugin && (
-            <div className="p-4 rounded-md border border-nexus-gray-light-400 dark:border-nexus-gray-700 bg-nexus-gray-light-200/50 dark:bg-nexus-gray-800/50 space-y-4">
-              <h3 className="text-lg font-medium text-nexus-gray-900 dark:text-white mb-3">Image Generation Settings</h3>
-               <div>
-                    <label htmlFor="image-style" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Image Style</label>
-                    <select
-                        id="image-style"
-                        value={formState.settings?.style || 'Default (None)'}
-                        onChange={(e) => handleSettingsChange('style', e.target.value)}
-                        className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-                    >
-                        {imageStyles.map(style => <option key={style} value={style}>{style}</option>)}
-                    </select>
-                </div>
-                 {formState.settings?.style === 'Custom' && (
-                     <div>
-                        <label htmlFor="custom-style-prompt" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Custom Style Prompt</label>
+      <div className="flex-1 flex flex-col bg-nexus-gray-light-200 dark:bg-nexus-gray-900 h-full">
+         <header className="flex items-center p-4 border-b border-nexus-gray-light-300 dark:border-nexus-gray-700 flex-shrink-0">
+            <h2 className="text-xl font-bold text-nexus-gray-900 dark:text-white">{isDefaultImagePlugin ? 'Configure Plugin' : (editingPlugin ? 'Edit Plugin' : 'Create New Plugin')}</h2>
+        </header>
+        <div className="flex-1 overflow-y-auto p-4 md:p-8">
+            <div className="space-y-6 max-w-4xl mx-auto">
+              <input
+                type="text"
+                placeholder="Plugin Name"
+                value={formState.name}
+                onChange={(e) => setFormState(s => ({...s, name: e.target.value}))}
+                className="w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                readOnly={isDefaultImagePlugin || isDefaultTtsPlugin}
+              />
+              <textarea
+                placeholder="Plugin Description"
+                value={formState.description}
+                onChange={(e) => setFormState(s => ({...s, description: e.target.value}))}
+                rows={2}
+                className="w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                readOnly={isDefaultTtsPlugin}
+              />
+              {isDefaultImagePlugin && (
+                <div className="p-4 rounded-md border border-nexus-gray-light-400 dark:border-nexus-gray-700 bg-nexus-gray-light-200/50 dark:bg-nexus-gray-800/50 space-y-4">
+                  <h3 className="text-lg font-medium text-nexus-gray-900 dark:text-white mb-3">Image Generation Settings</h3>
+                   <div>
+                        <label htmlFor="image-style" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Image Style</label>
+                        <select
+                            id="image-style"
+                            value={formState.settings?.style || 'Default (None)'}
+                            onChange={(e) => handleSettingsChange('style', e.target.value)}
+                            className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                        >
+                            {imageStyles.map(style => <option key={style} value={style}>{style}</option>)}
+                        </select>
+                    </div>
+                     {formState.settings?.style === 'Custom' && (
+                         <div>
+                            <label htmlFor="custom-style-prompt" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Custom Style Prompt</label>
+                            <textarea
+                                id="custom-style-prompt"
+                                value={formState.settings?.customStylePrompt || ''}
+                                onChange={(e) => handleSettingsChange('customStylePrompt', e.target.value)}
+                                rows={2}
+                                className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                                placeholder="e.g., in the style of vaporwave, cinematic lighting"
+                            />
+                         </div>
+                    )}
+                    <div>
+                        <label htmlFor="negative-prompt" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Negative Prompt</label>
                         <textarea
-                            id="custom-style-prompt"
-                            value={formState.settings?.customStylePrompt || ''}
-                            onChange={(e) => handleSettingsChange('customStylePrompt', e.target.value)}
+                            id="negative-prompt"
+                            value={formState.settings?.negativePrompt || ''}
+                            onChange={(e) => handleSettingsChange('negativePrompt', e.target.value)}
                             rows={2}
                             className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-                            placeholder="e.g., in the style of vaporwave, cinematic lighting"
+                            placeholder="e.g., ugly, blurry, deformed"
                         />
-                     </div>
-                )}
-                <div>
-                    <label htmlFor="negative-prompt" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Negative Prompt</label>
-                    <textarea
-                        id="negative-prompt"
-                        value={formState.settings?.negativePrompt || ''}
-                        onChange={(e) => handleSettingsChange('negativePrompt', e.target.value)}
-                        rows={2}
-                        className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-                        placeholder="e.g., ugly, blurry, deformed"
-                    />
-                </div>
-              <h3 className="text-lg font-medium text-nexus-gray-900 dark:text-white pt-4 border-t border-nexus-gray-light-400 dark:border-nexus-gray-700">API Configuration</h3>
-              <div className="space-y-4">
-                <div>
-                  <label htmlFor="api-service" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">API Service</label>
-                  <select 
-                      id="api-service"
-                      value={formState.settings?.service || 'default'}
-                      onChange={(e) => handleSettingsChange('service', e.target.value as ApiConfig['service'])}
-                      className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-                  >
-                      <option value="default">Default (Gemini)</option>
-                      <option value="gemini">Google Gemini (Custom Key)</option>
-                      <option value="openai">OpenAI-Compatible (e.g., DALL-E)</option>
-                  </select>
-                </div>
-                {formState.settings?.service === 'gemini' && (
-                    <div>
-                      <label htmlFor="api-key" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Gemini API Key</label>
-                      <input
-                        id="api-key"
-                        type="password"
-                        value={formState.settings?.apiKey || ''}
-                        onChange={(e) => handleSettingsChange('apiKey', e.target.value)}
-                        className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-                        placeholder="Leave blank to use default key"
-                      />
                     </div>
-                )}
-                 {formState.settings?.service === 'openai' && (
-                      <>
-                          <div>
-                              <label htmlFor="api-endpoint" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">API Endpoint</label>
-                              <input
-                                  id="api-endpoint"
-                                  type="text"
-                                  value={formState.settings?.apiEndpoint || ''}
-                                  onChange={(e) => handleSettingsChange('apiEndpoint', e.target.value)}
-                                  className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-                                  placeholder="e.g., https://api.openai.com/v1/images/generations"
-                              />
-                          </div>
-                           <div>
-                              <label htmlFor="api-key" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">API Key</label>
-                              <input
-                                  id="api-key"
-                                  type="password"
-                                  value={formState.settings?.apiKey || ''}
-                                  onChange={(e) => handleSettingsChange('apiKey', e.target.value)}
-                                  className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-                                  placeholder="API Key"
-                              />
-                          </div>
-                          <div>
-                              <label htmlFor="api-model" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Model Name</label>
-                              <input
-                                  id="api-model"
-                                  type="text"
-                                  value={formState.settings?.model || ''}
-                                  onChange={(e) => handleSettingsChange('model', e.target.value)}
-                                  className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-                                  placeholder="e.g., dall-e-3"
-                              />
-                          </div>
-                      </>
-                  )}
-                  {(formState.settings?.service === 'gemini' || formState.settings?.service === 'openai') && (
+                  <h3 className="text-lg font-medium text-nexus-gray-900 dark:text-white pt-4 border-t border-nexus-gray-light-400 dark:border-nexus-gray-700">API Configuration</h3>
+                  <div className="space-y-4">
                     <div>
-                        <label htmlFor="plugin-api-rate-limit" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Request Delay (ms)</label>
-                        <input
-                            id="plugin-api-rate-limit"
-                            type="number"
-                            value={formState.settings?.rateLimit || ''}
-                            onChange={(e) => handleSettingsChange('rateLimit', e.target.value ? parseInt(e.target.value, 10) : undefined)}
-                            className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
-                            placeholder="e.g., 1000 (for 1 request per second)"
-                            min="0"
-                        />
-                        <p className="text-xs text-nexus-gray-700 dark:text-nexus-gray-400 mt-1">Minimum time to wait between image generation requests to avoid rate limits.</p>
+                      <label htmlFor="api-service" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">API Service</label>
+                      <select 
+                          id="api-service"
+                          value={formState.settings?.service || 'default'}
+                          onChange={(e) => handleSettingsChange('service', e.target.value as ApiConfig['service'])}
+                          className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                      >
+                          <option value="default">Default (Gemini)</option>
+                          <option value="gemini">Google Gemini (Custom Key)</option>
+                          <option value="openai">OpenAI-Compatible (e.g., DALL-E)</option>
+                      </select>
                     </div>
-                )}
+                    {formState.settings?.service === 'gemini' && (
+                        <div>
+                          <label htmlFor="api-key" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Gemini API Key</label>
+                          <input
+                            id="api-key"
+                            type="password"
+                            value={formState.settings?.apiKey || ''}
+                            onChange={(e) => handleSettingsChange('apiKey', e.target.value)}
+                            className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                            placeholder="Leave blank to use default key"
+                          />
+                        </div>
+                    )}
+                     {formState.settings?.service === 'openai' && (
+                          <>
+                              <div>
+                                  <label htmlFor="api-endpoint" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">API Endpoint</label>
+                                  <input
+                                      id="api-endpoint"
+                                      type="text"
+                                      value={formState.settings?.apiEndpoint || ''}
+                                      onChange={(e) => handleSettingsChange('apiEndpoint', e.target.value)}
+                                      className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                                      placeholder="e.g., https://api.openai.com/v1/images/generations"
+                                  />
+                              </div>
+                               <div>
+                                  <label htmlFor="api-key" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">API Key</label>
+                                  <input
+                                      id="api-key"
+                                      type="password"
+                                      value={formState.settings?.apiKey || ''}
+                                      onChange={(e) => handleSettingsChange('apiKey', e.target.value)}
+                                      className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                                      placeholder="API Key"
+                                  />
+                              </div>
+                              <div>
+                                  <label htmlFor="api-model" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Model Name</label>
+                                  <input
+                                      id="api-model"
+                                      type="text"
+                                      value={formState.settings?.model || ''}
+                                      onChange={(e) => handleSettingsChange('model', e.target.value)}
+                                      className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                                      placeholder="e.g., dall-e-3"
+                                  />
+                              </div>
+                          </>
+                      )}
+                      {(formState.settings?.service === 'gemini' || formState.settings?.service === 'openai') && (
+                        <div>
+                            <label htmlFor="plugin-api-rate-limit" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Request Delay (ms)</label>
+                            <input
+                                id="plugin-api-rate-limit"
+                                type="number"
+                                value={formState.settings?.rateLimit || ''}
+                                onChange={(e) => handleSettingsChange('rateLimit', e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                                className="mt-1 block w-full bg-nexus-gray-light-100 dark:bg-nexus-gray-800 border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500"
+                                placeholder="e.g., 1000 (for 1 request per second)"
+                                min="0"
+                            />
+                            <p className="text-xs text-nexus-gray-700 dark:text-nexus-gray-400 mt-1">Minimum time to wait between image generation requests to avoid rate limits.</p>
+                        </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              <div className="flex flex-col h-96">
+                <label className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300 mb-1">Plugin Code (JavaScript)</label>
+                <textarea
+                  placeholder="Enter your plugin code here..."
+                  value={formState.code}
+                  onChange={(e) => setFormState(s => ({...s, code: e.target.value}))}
+                  className={`flex-1 w-full bg-nexus-light dark:bg-nexus-dark border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white font-mono text-sm focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500 resize-none ${(isDefaultImagePlugin || isDefaultTtsPlugin) ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  spellCheck="false"
+                  readOnly={isDefaultImagePlugin || isDefaultTtsPlugin}
+                />
+              </div>
+              <div className="flex justify-end space-x-4 pb-4">
+                <button onClick={handleCancel} className="py-2 px-4 rounded-md text-nexus-gray-900 dark:text-white bg-nexus-gray-light-400 dark:bg-nexus-gray-600 hover:bg-nexus-gray-light-500 dark:hover:bg-nexus-gray-500">Cancel</button>
+                <button onClick={handleSave} className="py-2 px-4 rounded-md text-white bg-nexus-blue-600 hover:bg-nexus-blue-500">Save Plugin</button>
               </div>
             </div>
-          )}
-          <div className="flex flex-col h-96">
-            <label className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300 mb-1">Plugin Code (JavaScript)</label>
-            <textarea
-              placeholder="Enter your plugin code here..."
-              value={formState.code}
-              onChange={(e) => setFormState(s => ({...s, code: e.target.value}))}
-              className={`flex-1 w-full bg-nexus-light dark:bg-nexus-dark border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white font-mono text-sm focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500 resize-none ${(isDefaultImagePlugin || isDefaultTtsPlugin) ? 'opacity-70 cursor-not-allowed' : ''}`}
-              spellCheck="false"
-              readOnly={isDefaultImagePlugin || isDefaultTtsPlugin}
-            />
-          </div>
-          <div className="flex justify-end space-x-4">
-            <button onClick={handleCancel} className="py-2 px-4 rounded-md text-nexus-gray-900 dark:text-white bg-nexus-gray-light-400 dark:bg-nexus-gray-600 hover:bg-nexus-gray-light-500 dark:hover:bg-nexus-gray-500">Cancel</button>
-            <button onClick={handleSave} className="py-2 px-4 rounded-md text-white bg-nexus-blue-600 hover:bg-nexus-blue-500">Save Plugin</button>
-          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col p-8 bg-nexus-gray-light-200 dark:bg-nexus-gray-900">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-3xl font-bold text-nexus-gray-900 dark:text-white">Plugin Manager</h2>
-        <div className="flex items-center space-x-2">
-            <input type="file" ref={fileInputRef} onChange={handleImport} accept=".json" className="hidden" />
-            <button onClick={() => fileInputRef.current?.click()} title="Import Plugin(s) from File" className="flex items-center space-x-2 py-2 px-3 rounded-md text-nexus-gray-900 dark:text-white bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600">
-                <UploadIcon className="w-5 h-5"/>
-                <span>Import</span>
-            </button>
-            <button onClick={handleExportAll} title="Export All Plugins" className="flex items-center space-x-2 py-2 px-3 rounded-md text-nexus-gray-900 dark:text-white bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600">
-                <DownloadIcon className="w-5 h-5"/>
-                <span>Export All</span>
-            </button>
-            <button onClick={() => setIsCreating(true)} title="Create a New Plugin" className="flex items-center space-x-2 py-2 px-4 rounded-md text-white bg-nexus-blue-600 hover:bg-nexus-blue-500">
-                <PlusIcon className="w-5 h-5" />
-                <span>New Plugin</span>
-            </button>
-        </div>
-      </div>
-      <div className="space-y-4">
-        {plugins.length === 0 ? (
-          <p className="text-nexus-gray-700 dark:text-nexus-gray-400 text-center py-8">No plugins installed. Click 'New Plugin' to create one.</p>
-        ) : (
-          plugins.map(plugin => (
-            <div key={plugin.id} className="bg-nexus-gray-light-100 dark:bg-nexus-gray-800 p-4 rounded-lg flex items-center justify-between">
-              <div className="flex-1 min-w-0">
-                <p className="text-lg font-semibold text-nexus-gray-900 dark:text-white truncate">{plugin.name}</p>
-                <p className="text-sm text-nexus-gray-700 dark:text-nexus-gray-400 truncate">{plugin.description}</p>
-              </div>
-              <div className="flex items-center space-x-3 ml-4">
-                <button onClick={() => handleExportPlugin(plugin)} title="Export Plugin" className="text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white"><DownloadIcon className="w-5 h-5"/></button>
-                <button onClick={() => handleToggle(plugin.id)} title={plugin.enabled ? 'Disable' : 'Enable'}>
-                  <PowerIcon className={`w-6 h-6 ${(plugin.id === 'default-image-generator' || plugin.id === 'default-tts-narrator') ? 'text-nexus-green-500 cursor-not-allowed' : (plugin.enabled ? 'text-nexus-green-500' : 'text-nexus-gray-500 hover:text-white')}`}/>
-                </button>
-                <button onClick={() => setEditingPlugin(plugin)} title={plugin.id === 'default-image-generator' ? 'Configure Plugin' : 'Edit Plugin'} className="text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white"><EditIcon className="w-5 h-5" /></button>
-                {plugin.id !== 'default-image-generator' && plugin.id !== 'default-tts-narrator' && (
-                    <button onClick={() => handleDelete(plugin.id)} title="Delete Plugin" className="text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-red-500 dark:hover:text-red-400"><TrashIcon className="w-5 h-5" /></button>
-                )}
-              </div>
+    <div className="flex-1 flex flex-col h-full bg-nexus-gray-light-200 dark:bg-nexus-gray-900">
+        <header className="flex items-center p-4 border-b border-nexus-gray-light-300 dark:border-nexus-gray-700 flex-shrink-0">
+            <div className="flex-1 flex justify-between items-center">
+                <h2 className="text-xl font-bold text-nexus-gray-900 dark:text-white">Plugin Manager</h2>
+                <div className="flex items-center space-x-2">
+                    <input type="file" ref={fileInputRef} onChange={handleImport} accept=".json" className="hidden" />
+                    <button onClick={() => fileInputRef.current?.click()} title="Import Plugin(s) from File" className="flex items-center space-x-2 py-2 px-3 rounded-md text-nexus-gray-900 dark:text-white bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600">
+                        <UploadIcon className="w-5 h-5"/>
+                        <span>Import</span>
+                    </button>
+                    <button onClick={handleExportAll} title="Export All Plugins" className="flex items-center space-x-2 py-2 px-3 rounded-md text-nexus-gray-900 dark:text-white bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600">
+                        <DownloadIcon className="w-5 h-5"/>
+                        <span>Export All</span>
+                    </button>
+                    <button onClick={() => setIsCreating(true)} title="Create a New Plugin" className="flex items-center space-x-2 py-2 px-4 rounded-md text-white bg-nexus-blue-600 hover:bg-nexus-blue-500">
+                        <PlusIcon className="w-5 h-5" />
+                        <span>New Plugin</span>
+                    </button>
+                </div>
             </div>
-          ))
-        )}
-      </div>
+        </header>
+        <div className="flex-1 overflow-y-auto p-4 md:p-8">
+            <div className="space-y-4 max-w-4xl mx-auto">
+                {plugins.length === 0 ? (
+                  <p className="text-nexus-gray-700 dark:text-nexus-gray-400 text-center py-8">No plugins installed. Click 'New Plugin' to create one.</p>
+                ) : (
+                  plugins.map(plugin => (
+                    <div key={plugin.id} className="bg-nexus-gray-light-100 dark:bg-nexus-gray-800 p-4 rounded-lg flex items-center justify-between">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-lg font-semibold text-nexus-gray-900 dark:text-white truncate">{plugin.name}</p>
+                        <p className="text-sm text-nexus-gray-700 dark:text-nexus-gray-400 truncate">{plugin.description}</p>
+                      </div>
+                      <div className="flex items-center space-x-3 ml-4">
+                        <button onClick={() => handleExportPlugin(plugin)} title="Export Plugin" className="text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white"><DownloadIcon className="w-5 h-5"/></button>
+                        <button onClick={() => handleToggle(plugin.id)} title={plugin.enabled ? 'Disable' : 'Enable'}>
+                          <PowerIcon className={`w-6 h-6 ${(plugin.id === 'default-image-generator' || plugin.id === 'default-tts-narrator') ? 'text-nexus-green-500 cursor-not-allowed' : (plugin.enabled ? 'text-nexus-green-500' : 'text-nexus-gray-500 hover:text-white')}`}/>
+                        </button>
+                        <button onClick={() => setEditingPlugin(plugin)} title={plugin.id === 'default-image-generator' ? 'Configure Plugin' : 'Edit Plugin'} className="text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white"><EditIcon className="w-5 h-5" /></button>
+                        {plugin.id !== 'default-image-generator' && plugin.id !== 'default-tts-narrator' && (
+                            <button onClick={() => handleDelete(plugin.id)} title="Delete Plugin" className="text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-red-500 dark:hover:text-red-400"><TrashIcon className="w-5 h-5" /></button>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+            </div>
+        </div>
     </div>
   );
 };

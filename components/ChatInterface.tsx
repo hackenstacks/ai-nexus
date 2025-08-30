@@ -38,7 +38,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     onTriggerHook,
     onMemoryImport,
     onSaveBackup,
-    handlePluginApiRequest
+    handlePluginApiRequest,
 }) => {
   const [currentSession, setCurrentSession] = useState<ChatSession>(session);
   const [input, setInput] = useState('');

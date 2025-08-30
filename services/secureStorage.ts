@@ -1,28 +1,104 @@
-import { AppData, ChatSession, VectorChunk } from '../types';
-import { STORAGE_KEY_DATA, STORAGE_KEY_PASS_VERIFIER } from '../constants';
+import { AppData, ChatSession, VectorChunk, Character } from '../types';
+import { STORAGE_KEY_DATA, STORAGE_KEY_PASS_VERIFIER, STORAGE_KEY_SALT } from '../constants';
 import { logger } from './loggingService';
 
-// --- IMPORTANT ---
-// This is a SIMULATED encryption for demonstration purposes in a browser-only environment.
-// It uses a simple XOR cipher and is NOT cryptographically secure.
-// In a real-world application, use a robust library like crypto-js or the Web Crypto API
-// and handle key management securely on a backend.
+// --- Production-Grade Encryption using Web Crypto API ---
+// This service implements strong, authenticated encryption for all user data.
+// - Key Derivation: PBKDF2 with 100,000 iterations and a unique salt.
+// - Encryption: AES-GCM with a 256-bit key.
+// - IV Management: A unique 12-byte Initialization Vector (IV) is generated for each encryption
+//   operation and prepended to the ciphertext.
+// This ensures confidentiality, integrity, and authenticity of the stored data.
 
-let masterKey: string | null = null;
+let masterCryptoKey: CryptoKey | null = null;
+// This is kept ONLY for the one-time migration of legacy data
+let masterPasswordForMigration: string | null = null; 
 
-// Helper function to handle Unicode strings for btoa. It converts a UTF-16 string
-// to a "binary" string where each character's code point is one of the bytes of the
-// UTF-8 sequence. This is safe to pass to btoa.
-const utf16ToBinary = (str: string): string => {
-    return unescape(encodeURIComponent(str));
+// --- Web Crypto API Helpers ---
+
+const deriveKey = async (password: string, salt: Uint8Array): Promise<CryptoKey> => {
+    const encoder = new TextEncoder();
+    const baseKey = await window.crypto.subtle.importKey(
+        'raw',
+        encoder.encode(password),
+        { name: 'PBKDF2' },
+        false,
+        ['deriveKey']
+    );
+    return window.crypto.subtle.deriveKey(
+        {
+            name: 'PBKDF2',
+            salt: salt,
+            iterations: 100000,
+            hash: 'SHA-256'
+        },
+        baseKey,
+        { name: 'AES-GCM', length: 256 },
+        true,
+        ['encrypt', 'decrypt']
+    );
 };
 
-// Helper function to decode the "binary" string from atob back to a UTF-16 string.
-const binaryToUtf16 = (binary: string): string => {
-    return decodeURIComponent(escape(binary));
+const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return window.btoa(binary);
 };
 
-const simpleXOR = (data: string, key: string): string => {
+const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
+    const binary_string = window.atob(base64);
+    const len = binary_string.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binary_string.charCodeAt(i);
+    }
+    return bytes.buffer;
+};
+
+const encryptData = async (data: string, key: CryptoKey): Promise<string> => {
+    const encoder = new TextEncoder();
+    const dataBuffer = encoder.encode(data);
+    const iv = window.crypto.getRandomValues(new Uint8Array(12)); // 12 bytes is recommended for AES-GCM
+
+    const encryptedBuffer = await window.crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv: iv },
+        key,
+        dataBuffer
+    );
+    
+    // Prepend IV to the ciphertext for storage. This is a standard and secure practice.
+    const combinedBuffer = new Uint8Array(iv.length + encryptedBuffer.byteLength);
+    combinedBuffer.set(iv);
+    combinedBuffer.set(new Uint8Array(encryptedBuffer), iv.length);
+
+    return arrayBufferToBase64(combinedBuffer);
+};
+
+const decryptData = async (encryptedBase64: string, key: CryptoKey): Promise<string> => {
+    const combinedBuffer = base64ToArrayBuffer(encryptedBase64);
+    
+    // Extract IV from the start of the buffer
+    const iv = combinedBuffer.slice(0, 12);
+    const ciphertext = combinedBuffer.slice(12);
+
+    const decryptedBuffer = await window.crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: iv },
+        key,
+        ciphertext
+    );
+
+    const decoder = new TextDecoder();
+    return decoder.decode(decryptedBuffer);
+};
+
+
+// --- Legacy XOR Cipher (for migration only) ---
+
+const legacySimpleXOR = (data: string, key: string): string => {
   let output = '';
   for (let i = 0; i < data.length; i++) {
     output += String.fromCharCode(data.charCodeAt(i) ^ key.charCodeAt(i % key.length));
@@ -30,25 +106,14 @@ const simpleXOR = (data: string, key: string): string => {
   return output;
 };
 
-const encrypt = (data: string): string => {
-  if (!masterKey) throw new Error('Master key is not set.');
-  // The result of XOR might contain non-Latin1 characters.
-  // We must convert it to a binary-safe string before btoa.
-  const xorResult = simpleXOR(data, masterKey);
-  const binaryString = utf16ToBinary(xorResult);
-  return btoa(binaryString);
-};
-
-const decrypt = (encryptedData: string): string => {
-  if (!masterKey) throw new Error('Master key is not set.');
-  const binaryString = atob(encryptedData);
-  // Convert back from the binary-safe string format before applying XOR again.
-  const xorResult = binaryToUtf16(binaryString);
-  return simpleXOR(xorResult, masterKey);
-};
-
-const setMasterKey = (password: string) => {
-    masterKey = password;
+const legacyDecrypt = (encryptedData: string, masterKey: string): string => {
+    if (!masterKey) throw new Error('Legacy master key is not set for migration.');
+    const utf16ToBinary = (str: string): string => unescape(encodeURIComponent(str));
+    const binaryToUtf16 = (binary: string): string => decodeURIComponent(escape(binary));
+    
+    const binaryString = atob(encryptedData);
+    const xorResult = binaryToUtf16(binaryString);
+    return legacySimpleXOR(xorResult, masterKey);
 };
 
 // --- IndexedDB setup ---
@@ -112,13 +177,12 @@ const setToDB = async (key: string, value: any): Promise<void> => {
     });
 };
 
-// A helper to migrate a single key from localStorage to IndexedDB
 const migrateKey = async (key: string) => {
     try {
         const lsValue = localStorage.getItem(key);
         if (lsValue !== null) {
             await setToDB(key, lsValue);
-            localStorage.removeItem(key);
+localStorage.removeItem(key);
             logger.log(`Migrated '${key}' from localStorage to IndexedDB.`);
         }
     } catch (e) {
@@ -127,50 +191,76 @@ const migrateKey = async (key: string) => {
 };
 
 export const hasMasterPassword = async (): Promise<boolean> => {
-    // Check for localStorage and migrate if necessary
     await migrateKey(STORAGE_KEY_PASS_VERIFIER);
     const verifier = await getFromDB(STORAGE_KEY_PASS_VERIFIER);
     return verifier !== undefined && verifier !== null;
 };
 
 export const setMasterPassword = async (password: string): Promise<void> => {
-    setMasterKey(password);
-    // Store a verifier. In a real app, this would be a securely hashed version of the password.
-    // Here we just store an encrypted known value.
-    const verifier = encrypt('password_is_correct');
+    masterPasswordForMigration = password;
+    
+    // Generate a new salt for the new password
+    const salt = window.crypto.getRandomValues(new Uint8Array(16));
+    const key = await deriveKey(password, salt);
+    masterCryptoKey = key;
+
+    const verifier = await encryptData('password_is_correct', key);
+    
+    await setToDB(STORAGE_KEY_SALT, salt);
     await setToDB(STORAGE_KEY_PASS_VERIFIER, verifier);
+    
     // Clear any old localStorage value on new password set
     localStorage.removeItem(STORAGE_KEY_PASS_VERIFIER);
+    localStorage.removeItem(STORAGE_KEY_SALT);
 };
 
 export const verifyMasterPassword = async (password: string): Promise<boolean> => {
-    setMasterKey(password);
-    // Migration check. Even if hasMasterPassword ran, a user might reload on the auth screen.
+    masterPasswordForMigration = password; // Keep for potential data migration
+    
     await migrateKey(STORAGE_KEY_PASS_VERIFIER);
+    await migrateKey(STORAGE_KEY_SALT);
+
+    const salt = await getFromDB(STORAGE_KEY_SALT);
     const verifier = await getFromDB(STORAGE_KEY_PASS_VERIFIER);
     if (!verifier) return false;
-    try {
-        const decrypted = decrypt(verifier);
-        return decrypted === 'password_is_correct';
-    } catch (e) {
-        return false;
+
+    if (salt) {
+        // --- Modern Path (AES-GCM) ---
+        try {
+            const key = await deriveKey(password, salt);
+            masterCryptoKey = key;
+            const decrypted = await decryptData(verifier, key);
+            return decrypted === 'password_is_correct';
+        } catch (e) {
+            return false;
+        }
+    } else {
+        // --- Legacy Path (XOR) for migration ---
+        try {
+            const decrypted = legacyDecrypt(verifier, password);
+            // If legacy login is correct, masterCryptoKey remains null.
+            // This signals to loadData() that a migration is needed.
+            return decrypted === 'password_is_correct';
+        } catch (e) {
+            return false;
+        }
     }
 };
 
 export const saveData = async (data: AppData): Promise<void> => {
+    if (!masterCryptoKey) throw new Error("Cannot save data: master key not available. This may happen if a legacy login occurred without a data load/migration.");
+
     const jsonString = JSON.stringify(data);
-    const encryptedData = encrypt(jsonString);
+    const encryptedData = await encryptData(jsonString, masterCryptoKey);
     try {
         await setToDB(STORAGE_KEY_DATA, encryptedData);
     } catch (e) {
         logger.error("Failed to save data to IndexedDB:", e);
-        // Re-throw to allow callers (like import) to handle it
         throw e;
     }
 };
 
 export const loadData = async (): Promise<AppData> => {
-    // Migration check for main data
     let encryptedData: string | undefined;
     try {
         const lsData = localStorage.getItem(STORAGE_KEY_DATA);
@@ -184,46 +274,89 @@ export const loadData = async (): Promise<AppData> => {
         }
     } catch (e) {
         logger.error("Failed to load or migrate data:", e);
-        // Fallback to empty if DB fails completely
         return { characters: [], chatSessions: [], plugins: [] };
     }
 
     if (!encryptedData) {
         return { characters: [], chatSessions: [], plugins: [] };
     }
-    try {
-        const jsonString = decrypt(encryptedData);
-        const data = JSON.parse(jsonString) as AppData;
 
-        // Migration logic for chat sessions
-        if (data.chatSessions && data.chatSessions.length > 0) {
-            data.chatSessions = data.chatSessions.map((session: any) => {
-                if (session.characterId && !session.characterIds) {
-                    logger.log("Migrating old chat session format for session ID:", session.id);
-                    const character = data.characters.find(c => c.id === session.characterId);
-                    const migratedSession: ChatSession = {
-                        id: session.id,
-                        characterIds: [session.characterId],
-                        name: character ? `Chat with ${character.name}` : 'Untitled Chat',
-                        messages: session.messages
-                    };
-                    return migratedSession;
-                }
-                return session as ChatSession;
-            });
+    let rawData: any;
+    try {
+        if (masterCryptoKey) {
+            // --- Modern Decryption Path ---
+            const jsonString = await decryptData(encryptedData, masterCryptoKey);
+            rawData = JSON.parse(jsonString);
+        } else {
+            // --- Legacy Decryption and Migration Path ---
+            if (!masterPasswordForMigration) throw new Error("Password not available for legacy data migration.");
+            
+            logger.warn("No modern key found. Attempting legacy data decryption and migration...");
+            const jsonString = legacyDecrypt(encryptedData, masterPasswordForMigration);
+            rawData = JSON.parse(jsonString);
+            logger.log("Legacy data successfully decrypted. Performing one-time security upgrade...");
+
+            // --- Perform Security Upgrade ---
+            const newSalt = window.crypto.getRandomValues(new Uint8Array(16));
+            const newKey = await deriveKey(masterPasswordForMigration, newSalt);
+            masterCryptoKey = newKey; // Set the key for the current session
+
+            // Upgrade the password verifier
+            const newVerifier = await encryptData('password_is_correct', newKey);
+            await setToDB(STORAGE_KEY_SALT, newSalt);
+            await setToDB(STORAGE_KEY_PASS_VERIFIER, newVerifier);
+
+            // Re-encrypt and save the main data blob with the new key
+            await saveData(rawData); 
+            logger.log("Security upgrade complete. All data is now protected with AES-GCM.");
         }
 
-        // Ensure all top-level keys exist for backward compatibility
-        return {
-            characters: data.characters || [],
-            chatSessions: data.chatSessions || [],
-            plugins: data.plugins || []
-        };
     } catch (e) {
         logger.error("Failed to decrypt or parse data. Data might be corrupted or password is wrong.", e);
-        // On decryption failure, returning empty state prevents app crash
         return { characters: [], chatSessions: [], plugins: [] };
     }
+
+    // --- Data Validation and Sanitization (Runs on data from both paths) ---
+    if (typeof rawData !== 'object' || rawData === null) {
+        logger.error("Loaded data is not a valid object after parsing. Data is corrupted.", { rawData });
+        return { characters: [], chatSessions: [], plugins: [] };
+    }
+
+    const sanitizedCharacters: Character[] = (Array.isArray(rawData.characters) ? rawData.characters : [])
+        .filter(c => c && typeof c === 'object');
+    
+    const sanitizedChatSessions: ChatSession[] = (Array.isArray(rawData.chatSessions) ? rawData.chatSessions : [])
+        .filter(s => s && typeof s === 'object');
+        
+    const sanitizedPlugins = (Array.isArray(rawData.plugins) ? rawData.plugins : [])
+        .filter(p => p && typeof p === 'object');
+
+    const validatedData: AppData = {
+        characters: sanitizedCharacters,
+        chatSessions: sanitizedChatSessions,
+        plugins: sanitizedPlugins,
+        userKeys: rawData.userKeys
+    };
+
+    validatedData.chatSessions = validatedData.chatSessions.map((session: any) => {
+        if (session.characterId && !session.characterIds) {
+            logger.log("Migrating old chat session format for session ID:", session.id);
+            const character = validatedData.characters.find(c => c.id === session.characterId);
+            const migratedSession: ChatSession = {
+                id: session.id,
+                characterIds: [session.characterId],
+                name: character ? `Chat with ${character.name}` : 'Untitled Chat',
+                messages: Array.isArray(session.messages) ? session.messages : []
+            };
+            return migratedSession;
+        }
+        if (!Array.isArray(session.messages)) {
+            session.messages = [];
+        }
+        return session as ChatSession;
+    });
+
+    return validatedData;
 };
 
 // --- Vector Store Functions ---
