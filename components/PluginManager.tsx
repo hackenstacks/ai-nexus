@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plugin, ApiConfig } from '../types';
+import { Plugin, ApiConfig, ConfirmationRequest } from '../types';
 import { logger } from '../services/loggingService';
 import { PlusIcon } from './icons/PlusIcon';
 import { TrashIcon } from './icons/TrashIcon';
@@ -11,6 +11,7 @@ import { DownloadIcon } from './icons/DownloadIcon';
 interface PluginManagerProps {
   plugins: Plugin[];
   onPluginsUpdate: (plugins: Plugin[]) => void;
+  onSetConfirmation: (request: ConfirmationRequest | null) => void;
 }
 
 const examplePluginCode = `// Example Plugin: UPPERCASE every message
@@ -34,7 +35,7 @@ nexus.log('UPPERCASE plugin loaded and ready.');
 
 const imageStyles = ["Default (None)", "Anime/Manga", "Photorealistic", "Digital Painting", "Fantasy Art", "Cyberpunk", "Vintage Photo", "Low Poly", "Custom"];
 
-export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPluginsUpdate }) => {
+export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPluginsUpdate, onSetConfirmation }) => {
   const [editingPlugin, setEditingPlugin] = useState<Plugin | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [formState, setFormState] = useState<Omit<Plugin, 'id' | 'enabled'>>({ name: '', description: '', code: '', settings: {} });
@@ -80,12 +81,17 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ plugins, onPlugins
   };
   
   const handleDelete = (pluginId: string) => {
-    if (window.confirm('Are you sure you want to delete this plugin?')) {
-        const pluginName = plugins.find(p => p.id === pluginId)?.name || 'Unknown';
-        const updatedPlugins = plugins.filter(p => p.id !== pluginId);
-        onPluginsUpdate(updatedPlugins);
-        logger.log(`Plugin deleted: ${pluginName}`);
-    }
+    const pluginName = plugins.find(p => p.id === pluginId)?.name || 'Unknown';
+    onSetConfirmation({
+        message: `Are you sure you want to delete the plugin "${pluginName}"? This action cannot be undone.`,
+        onConfirm: () => {
+            const updatedPlugins = plugins.filter(p => p.id !== pluginId);
+            onPluginsUpdate(updatedPlugins);
+            logger.log(`Plugin deleted: ${pluginName}`);
+            onSetConfirmation(null);
+        },
+        onCancel: () => onSetConfirmation(null),
+    });
   };
 
   const handleToggle = (pluginId: string) => {

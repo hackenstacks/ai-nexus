@@ -1,4 +1,6 @@
-import { GoogleGenAI } from "@google/genai";
+// FIX: `GenerateContentStreamResponse` is not an exported member of `@google/genai`.
+// The correct type for a stream response is an async iterable of `GenerateContentResponse`.
+import { GoogleGenAI, GenerateContentResponse, GenerateImagesResponse } from "@google/genai";
 import { Character, Message, ApiConfig } from "../types";
 import { logger } from "./loggingService";
 
@@ -366,6 +368,8 @@ const streamGeminiChatResponse = async (
                 };
             });
 
+        // FIX: The type `GenerateContentStreamResponse` is not exported from `@google/genai`.
+        // The return type from `generateContentStream` is an async iterable which can be inferred by TypeScript.
         const responseStream = await withRetry(() => ai.models.generateContentStream({
             model: 'gemini-2.5-flash',
             contents: contents,
@@ -387,7 +391,8 @@ const generateGeminiImage = async (prompt: string, settings: { [key: string]: an
     const fullPrompt = buildImagePrompt(prompt, settings);
     logger.log("Generating Gemini image with full prompt:", { fullPrompt });
 
-    const response = await withRetry(() => ai.models.generateImages({
+    // FIX: Explicitly type the response from withRetry to ensure type safety.
+    const response: GenerateImagesResponse = await withRetry(() => ai.models.generateImages({
         model: 'imagen-4.0-generate-001',
         prompt: fullPrompt,
         config: {
@@ -493,7 +498,8 @@ export const generateImageFromPrompt = async (prompt: string, settings?: { [key:
 export const generateContent = async (prompt: string, apiKey?: string): Promise<string> => {
   try {
     const ai = getAiClient(apiKey);
-    const response = await withRetry(() => ai.models.generateContent({
+    // FIX: Explicitly type the response from withRetry to ensure type safety.
+    const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: prompt,
     }));
@@ -512,6 +518,8 @@ export const streamGenericResponse = async (
 ): Promise<void> => {
     try {
         const ai = getAiClient(apiKey);
+        // FIX: The type `GenerateContentStreamResponse` is not exported from `@google/genai`.
+        // The return type from `generateContentStream` is an async iterable which can be inferred by TypeScript.
         const responseStream = await withRetry(() => ai.models.generateContentStream({
             model: 'gemini-2.5-flash',
             contents: [{ role: 'user', parts: [{ text: prompt }] }],

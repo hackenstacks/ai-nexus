@@ -30,6 +30,30 @@ const defaultEmbeddingConfig: EmbeddingConfig = {
     model: 'nomic-embed-text'
 };
 
+const examplePluginCode = `// This code runs in a secure sandbox right before this character generates a response.
+// You can use it to dynamically alter their behavior.
+// The 'nexus' object provides logging and access to hooks.
+
+nexus.hooks.register('beforeResponseGenerate', (payload) => {
+  // The payload contains the data for the upcoming API call.
+  // payload: { history: Message[], systemOverride?: string }
+  
+  nexus.log('Character plugin is running...');
+
+  // Example: Make the character always respond in a pirate accent.
+  const pirateInstruction = 'For this response, you must speak like a pirate.';
+  
+  if (payload.systemOverride) {
+    // If an override already exists (e.g., from a /sys command), append to it.
+    payload.systemOverride += \`\\n\${pirateInstruction}\`;
+  } else {
+    payload.systemOverride = pirateInstruction;
+  }
+  
+  // You must return the modified payload object.
+  return payload;
+});
+`;
 
 const Section: React.FC<{ title: string, children: React.ReactNode, defaultOpen?: boolean }> = ({ title, children, defaultOpen = true }) => {
     const [isOpen, setIsOpen] = useState(defaultOpen);
@@ -73,6 +97,8 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
             ragSources: character.ragSources || [],
             embeddingConfig: character.embeddingConfig || defaultEmbeddingConfig,
             apiConfig: character.apiConfig || defaultApiConfig,
+            pluginEnabled: character.pluginEnabled || false,
+            pluginCode: character.pluginCode || '',
         });
     } else {
         setFormState({
@@ -92,6 +118,8 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
             ragEnabled: false,
             embeddingConfig: defaultEmbeddingConfig,
             ragSources: [],
+            pluginEnabled: false,
+            pluginCode: examplePluginCode,
         });
     }
   }, [character]);
@@ -368,6 +396,37 @@ export const CharacterForm: React.FC<CharacterFormProps> = ({ character, onSave,
                     className="mt-1 block w-full bg-nexus-gray-light-300 dark:bg-nexus-dark border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md shadow-sm py-2 px-3 text-nexus-gray-800 dark:text-nexus-gray-300 focus:outline-none cursor-not-allowed"
                 />
             </div>
+        </Section>
+
+        <Section title="Character Logic (Experimental)" defaultOpen={false}>
+            <div className="flex items-center space-x-3">
+                <label htmlFor="plugin-enabled" className="text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300">Enable Character Logic</label>
+                <button
+                    type="button"
+                    onClick={() => handleFormChange('pluginEnabled', !formState.pluginEnabled)}
+                    className={`${formState.pluginEnabled ? 'bg-nexus-blue-600' : 'bg-nexus-gray-light-400 dark:bg-nexus-gray-600'} relative inline-flex h-6 w-11 items-center rounded-full`}
+                    >
+                    <span className={`${formState.pluginEnabled ? 'translate-x-6' : 'translate-x-1'} inline-block h-4 w-4 transform rounded-full bg-white transition`}/>
+                </button>
+            </div>
+            {formState.pluginEnabled && (
+                <div className="space-y-4 pt-4 border-t border-nexus-gray-light-400 dark:border-nexus-gray-700 mt-4">
+                    <p className="text-xs text-nexus-gray-700 dark:text-nexus-gray-400">
+                        Write custom JavaScript that runs in a secure sandbox before this character generates a response. This allows for dynamic, complex behaviors. The code has access to a special <code className="bg-nexus-gray-light-300 dark:bg-nexus-dark px-1 rounded">nexus</code> object to register a <code className="bg-nexus-gray-light-300 dark:bg-nexus-dark px-1 rounded">'beforeResponseGenerate'</code> hook.
+                    </p>
+                    <div className="flex flex-col h-72">
+                        <label htmlFor="pluginCode" className="block text-sm font-medium text-nexus-gray-800 dark:text-nexus-gray-300 mb-1">Plugin Code</label>
+                        <textarea
+                            id="pluginCode"
+                            value={formState.pluginCode || ''}
+                            onChange={(e) => handleFormChange('pluginCode', e.target.value)}
+                            className="flex-1 w-full bg-nexus-light dark:bg-nexus-dark border border-nexus-gray-light-400 dark:border-nexus-gray-700 rounded-md py-2 px-3 text-nexus-gray-900 dark:text-white font-mono text-sm focus:outline-none focus:ring-nexus-blue-500 focus:border-nexus-blue-500 resize-none"
+                            spellCheck="false"
+                            placeholder="nexus.hooks.register('beforeResponseGenerate', (payload) => { ... });"
+                        />
+                    </div>
+                </div>
+            )}
         </Section>
         
         <Section title="Chat API Configuration" defaultOpen={false}>

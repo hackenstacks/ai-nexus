@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Character, ChatSession, AppData, Plugin, GeminiApiRequest, Message, CryptoKeys, RagSource } from '../types';
+import { Character, ChatSession, AppData, Plugin, GeminiApiRequest, Message, CryptoKeys, RagSource, ConfirmationRequest } from '../types';
 import { loadData, saveData } from '../services/secureStorage';
 import * as ragService from '../services/ragService';
 import { CharacterList } from './CharacterList';
@@ -10,6 +10,7 @@ import { PluginManager } from './PluginManager';
 import { LogViewer } from './LogViewer';
 import { HelpModal } from './HelpModal';
 import { ChatSelectionModal } from './ChatSelectionModal';
+import { ConfirmationModal } from './ConfirmationModal';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { PluginSandbox } from '../services/pluginSandbox';
 import * as geminiService from '../services/geminiService';
@@ -96,6 +97,7 @@ export const MainLayout: React.FC = () => {
     const [isLogViewerVisible, setIsLogViewerVisible] = useState(false);
     const [isHelpVisible, setIsHelpVisible] = useState(false);
     const [isChatModalVisible, setIsChatModalVisible] = useState(false);
+    const [confirmationRequest, setConfirmationRequest] = useState<ConfirmationRequest | null>(null);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const sandboxes = useRef(new Map<string, PluginSandbox>()).current;
@@ -267,59 +269,65 @@ export const MainLayout: React.FC = () => {
     }, [persistData]);
 
     const handleDeleteCharacter = (characterId: string) => {
-        if (window.confirm('Are you sure you want to delete this character? All chats involving this character and all its knowledge files will also be deleted.')) {
-            const characterName = appData.characters.find(c => c.id === characterId)?.name || 'Unknown';
-            const characterToDelete = appData.characters.find(c => c.id === characterId);
-            
-            // Delete associated RAG sources and vectors
-            if (characterToDelete?.ragSources && characterToDelete.ragSources.length > 0) {
-                characterToDelete.ragSources.forEach(async (source) => {
-                    await ragService.deleteSource(source.id);
-                });
-                logger.log(`Deleted all knowledge sources for character: ${characterName}`);
-            }
+        const characterName = appData.characters.find(c => c.id === characterId)?.name || 'Unknown';
+        setConfirmationRequest({
+            message: (
+                <span>Are you sure you want to delete <strong>{characterName}</strong>? All chats involving this character and all associated knowledge files will also be permanently deleted. This action cannot be undone.</span>
+            ),
+            onConfirm: () => {
+                const characterToDelete = appData.characters.find(c => c.id === characterId);
+                
+                if (characterToDelete?.ragSources && characterToDelete.ragSources.length > 0) {
+                    characterToDelete.ragSources.forEach(async (source) => {
+                        await ragService.deleteSource(source.id);
+                    });
+                    logger.log(`Deleted all knowledge sources for character: ${characterName}`);
+                }
 
-            const updatedCharacters = appData.characters.filter(c => c.id !== characterId);
-            const updatedSessions = appData.chatSessions.filter(s => !s.characterIds.includes(characterId));
-            
-            const updatedData = { ...appData, characters: updatedCharacters, chatSessions: updatedSessions };
-            setAppData(updatedData);
-            persistData(updatedData);
-            logger.log(`Deleted character and associated sessions: ${characterName}`);
+                const updatedCharacters = appData.characters.filter(c => c.id !== characterId);
+                const updatedSessions = appData.chatSessions.filter(s => !s.characterIds.includes(characterId));
+                
+                const updatedData = { ...appData, characters: updatedCharacters, chatSessions: updatedSessions };
+                setAppData(updatedData);
+                persistData(updatedData);
+                logger.log(`Deleted character and associated sessions: ${characterName}`);
 
-            if (selectedChatId && !updatedSessions.some(s => s.id === selectedChatId)) {
-                setSelectedChatId(updatedSessions.length > 0 ? updatedSessions[0].id : null);
-            }
-        }
+                if (selectedChatId && !updatedSessions.some(s => s.id === selectedChatId)) {
+                    setSelectedChatId(updatedSessions.length > 0 ? updatedSessions[0].id : null);
+                }
+                setConfirmationRequest(null);
+            },
+            onCancel: () => setConfirmationRequest(null)
+        });
     };
 
+    // FIX: Make the function async to match the prop type expected by CharacterForm.
     const handleDeleteRagSource = async (characterId: string, sourceId: string) => {
-        try {
-            const character = appData.characters.find(c => c.id === characterId);
-            if (!character) throw new Error("Character not found");
+        const character = appData.characters.find(c => c.id === characterId);
+        if (!character) return;
+        const source = character.ragSources?.find(s => s.id === sourceId);
+        if (!source) return;
 
-            const source = character.ragSources?.find(s => s.id === sourceId);
-            if (!source) throw new Error("Source not found");
-            
-            if (!window.confirm(`Are you sure you want to delete the knowledge file "${source.fileName}"? This cannot be undone.`)) {
-                return;
-            }
-
-            // Delete vectors from DB
-            await ragService.deleteSource(sourceId);
-
-            // Update character state
-            const updatedCharacter = {
-                ...character,
-                ragSources: character.ragSources?.filter(s => s.id !== sourceId)
-            };
-            
-            await handleSaveCharacter(updatedCharacter);
-            logger.log(`Deleted RAG source "${source.fileName}" for character ${character.name}`);
-        } catch (error) {
-            logger.error("Failed to delete RAG source:", error);
-            alert(`Failed to delete knowledge source. Check logs for details.`);
-        }
+        setConfirmationRequest({
+            message: `Are you sure you want to delete the knowledge file "${source.fileName}"? This cannot be undone.`,
+            onConfirm: async () => {
+                try {
+                    await ragService.deleteSource(sourceId);
+                    const updatedCharacter = {
+                        ...character,
+                        ragSources: character.ragSources?.filter(s => s.id !== sourceId)
+                    };
+                    await handleSaveCharacter(updatedCharacter);
+                    logger.log(`Deleted RAG source "${source.fileName}" for character ${character.name}`);
+                } catch (error) {
+                    logger.error("Failed to delete RAG source:", error);
+                    alert(`Failed to delete knowledge source. Check logs for details.`);
+                } finally {
+                    setConfirmationRequest(null);
+                }
+            },
+            onCancel: () => setConfirmationRequest(null)
+        });
     };
 
 
@@ -340,16 +348,22 @@ export const MainLayout: React.FC = () => {
     };
 
     const handleDeleteChat = (sessionId: string) => {
-        if (window.confirm('Are you sure you want to delete this chat session?')) {
-            const updatedSessions = appData.chatSessions.filter(s => s.id !== sessionId);
-            const updatedData = { ...appData, chatSessions: updatedSessions };
-            setAppData(updatedData);
-            persistData(updatedData);
-            if (selectedChatId === sessionId) {
-                setSelectedChatId(updatedSessions.length > 0 ? updatedSessions[0].id : null);
-            }
-            logger.log(`Chat session deleted: ${sessionId}`);
-        }
+        const sessionName = appData.chatSessions.find(s => s.id === sessionId)?.name || 'Unknown Chat';
+        setConfirmationRequest({
+            message: `Are you sure you want to delete the chat session "${sessionName}"?`,
+            onConfirm: () => {
+                const updatedSessions = appData.chatSessions.filter(s => s.id !== sessionId);
+                const updatedData = { ...appData, chatSessions: updatedSessions };
+                setAppData(updatedData);
+                persistData(updatedData);
+                if (selectedChatId === sessionId) {
+                    setSelectedChatId(updatedSessions.length > 0 ? updatedSessions[0].id : null);
+                }
+                logger.log(`Chat session deleted: ${sessionId}`);
+                setConfirmationRequest(null);
+            },
+            onCancel: () => setConfirmationRequest(null)
+        });
     };
     
     const handleEditCharacter = (character: Character) => {
@@ -437,41 +451,55 @@ export const MainLayout: React.FC = () => {
     
     const handleImportData = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
-        if (!file) return;
+        if (!file) {
+            logger.warn("Import handler was called but no file was selected.");
+            return;
+        }
 
         logger.log(`Starting data import from file: ${file.name}`);
         const reader = new FileReader();
+
+        reader.onerror = (error) => {
+            logger.error("FileReader failed to read the file.", error);
+            alert("An error occurred while trying to read the file. Please check the browser console for details.");
+        };
+        
         reader.onload = async (e) => {
+            logger.log("File has been loaded into memory. Processing content...");
             try {
                 const text = e.target?.result as string;
+                if (!text) {
+                    throw new Error("File content is empty.");
+                }
                 const data = JSON.parse(text);
 
-                // 1. Check for AI Nexus Full Backup (new format)
-                if (data.spec === 'ai_nexus_backup' && data.data) {
-                    if (window.confirm('This appears to be a full backup. Importing it will overwrite all current data. Are you sure?')) {
-                        await persistData(data.data);
-                        logger.log("Full backup imported successfully! Reloading application...");
-                        alert('Backup restored successfully! The application will now reload.');
-                        window.location.reload();
-                    }
-                    return;
-                }
-                
-                // 2. Check for AI Nexus Full Backup (Legacy format)
-                if (data.characters && data.chatSessions) {
-                    if (window.confirm('This appears to be a full backup. Importing it will overwrite all current data. Are you sure?')) {
-                        await persistData(data);
-                        logger.log("Legacy backup imported successfully! Reloading application...");
-                        alert('Backup restored successfully! The application will now reload.');
-                        window.location.reload();
-                    }
+                // --- Type Identification Logic ---
+
+                // 1. AI Nexus Backup (v1.0+)
+                if (data.spec === 'ai_nexus_backup' && data.data && Array.isArray(data.data.characters)) {
+                    logger.log("Detected AI Nexus full backup format.");
+                    setConfirmationRequest({
+                        message: 'This is a full backup file. Importing it will overwrite all of your current characters, chats, and settings. Are you sure you want to continue?',
+                        onConfirm: async () => {
+                            await persistData(data.data);
+                            logger.log("Full backup imported successfully! Reloading application...");
+                            alert('Backup restored successfully! The application will now reload.');
+                            setConfirmationRequest(null);
+                            window.location.reload();
+                        },
+                        onCancel: () => {
+                            logger.log("Backup import cancelled by user.");
+                            alert("Backup import cancelled.");
+                            setConfirmationRequest(null);
+                        }
+                    });
                     return;
                 }
 
-                // 3. Check for Character Card
+                // 2. Character Card (V2 compatible or Nexus-exported)
                 const importedChar = compatibilityService.v2ToNexus(data);
                 if (importedChar) {
-                    // Asynchronously verify signature if it exists
+                    logger.log("Detected Character Card format.");
                     if (importedChar.signature && importedChar.userPublicKeyJwk) {
                         (async () => {
                             try {
@@ -496,12 +524,34 @@ export const MainLayout: React.FC = () => {
                     setAppData(updatedData);
                     await persistData(updatedData);
                     logger.log(`Imported character: ${importedChar.name}`);
-                    alert(`Character "${importedChar.name}" imported successfully. Edit and save the character to generate new signing keys.`);
+                    alert(`Character "${importedChar.name}" imported successfully. Edit and save the character to generate new signing keys if it's from an external source.`);
+                    return;
+                }
+                
+                // 3. Legacy Backup (less specific, checked after character card)
+                if (Array.isArray(data.characters) && Array.isArray(data.chatSessions)) {
+                    logger.log("Detected legacy backup format.");
+                    setConfirmationRequest({
+                        message: 'This appears to be a full backup. Importing it will overwrite all current data. Are you sure?',
+                        onConfirm: async () => {
+                            await persistData(data); // Legacy format is the raw AppData
+                            logger.log("Legacy backup imported successfully! Reloading application...");
+                            alert('Backup restored successfully! The application will now reload.');
+                            setConfirmationRequest(null);
+                            window.location.reload();
+                        },
+                        onCancel: () => {
+                            logger.log("Backup import cancelled by user.");
+                            alert("Backup import cancelled.");
+                            setConfirmationRequest(null);
+                        }
+                    });
                     return;
                 }
 
-                // 4. Check for AI Nexus Chat Session
+                // 4. Chat Session
                 if (data.id && Array.isArray(data.messages) && Array.isArray(data.characterIds)) {
+                    logger.log("Detected Chat Session format.");
                     const newSession: ChatSession = { ...data, id: crypto.randomUUID() }; // new ID to prevent collision
                     const updatedData = { ...appData, chatSessions: [...appData.chatSessions, newSession] };
                     setAppData(updatedData);
@@ -511,10 +561,11 @@ export const MainLayout: React.FC = () => {
                     return;
                 }
                 
-                throw new Error("Unrecognized file format.");
+                // 5. Fallback
+                throw new Error("Unrecognized file format. The file is not a valid character card, chat session, or full backup.");
 
             } catch (error) {
-                logger.error("Import failed:", error);
+                logger.error("Import failed during processing:", error);
                 alert(`Failed to import data. Please check the file format and logs. Error: ${error instanceof Error ? error.message : String(error)}`);
             } finally {
                 if (fileInputRef.current) {
@@ -522,6 +573,7 @@ export const MainLayout: React.FC = () => {
                 }
             }
         };
+
         reader.readAsText(file);
     };
 
@@ -636,6 +688,7 @@ export const MainLayout: React.FC = () => {
                 return <PluginManager
                     plugins={appData.plugins || []}
                     onPluginsUpdate={handlePluginsUpdate}
+                    onSetConfirmation={setConfirmationRequest}
                 />;
             case 'chat':
             default:
@@ -651,6 +704,7 @@ export const MainLayout: React.FC = () => {
                         onCharacterUpdate={handleCharacterUpdate}
                         onMemoryImport={handleMemoryImport}
                         onSaveBackup={handleSaveBackup}
+                        handlePluginApiRequest={handlePluginApiRequest}
                     />
                 ) : (
                     <div className="flex-1 flex items-center justify-center bg-nexus-gray-light-200 dark:bg-nexus-gray-900">
@@ -668,6 +722,13 @@ export const MainLayout: React.FC = () => {
             {isLogViewerVisible && <LogViewer onClose={() => setIsLogViewerVisible(false)} />}
             {isHelpVisible && <HelpModal onClose={() => setIsHelpVisible(false)} />}
             {isChatModalVisible && <ChatSelectionModal characters={appData.characters} onClose={() => setIsChatModalVisible(false)} onCreateChat={handleCreateChat}/>}
+            {confirmationRequest && (
+                <ConfirmationModal 
+                    message={confirmationRequest.message}
+                    onConfirm={confirmationRequest.onConfirm}
+                    onCancel={confirmationRequest.onCancel}
+                />
+            )}
             
             <aside className="w-80 bg-nexus-gray-light-200 dark:bg-nexus-gray-800 flex flex-col p-4 border-r border-nexus-gray-light-300 dark:border-nexus-gray-700">
                 <div className="flex items-center justify-between mb-4">

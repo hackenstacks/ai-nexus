@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Character, ChatSession, Message, CryptoKeys } from '../types';
+import { Character, ChatSession, Message, CryptoKeys, GeminiApiRequest } from '../types';
 import { streamChatResponse, streamGenericResponse, generateContent } from '../services/geminiService';
 import * as cryptoService from '../services/cryptoService';
 import * as ttsService from '../services/ttsService';
@@ -13,6 +13,7 @@ import { SpeakerIcon } from './icons/SpeakerIcon';
 import { MemoryImportModal } from './MemoryImportModal';
 import { CheckCircleIcon } from './icons/CheckCircleIcon';
 import { ExclamationTriangleIcon } from './icons/ExclamationTriangleIcon';
+import { PluginSandbox } from '../services/pluginSandbox';
 
 interface ChatInterfaceProps {
   session: ChatSession;
@@ -24,6 +25,7 @@ interface ChatInterfaceProps {
   onTriggerHook: <T, R>(hookName: string, data: T) => Promise<R>;
   onMemoryImport: (fromSessionId: string, toSessionId: string) => void;
   onSaveBackup: () => void;
+  handlePluginApiRequest: (request: GeminiApiRequest) => Promise<any>;
 }
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({ 
@@ -35,7 +37,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     onCharacterUpdate, 
     onTriggerHook,
     onMemoryImport,
-    onSaveBackup
+    onSaveBackup,
+    handlePluginApiRequest
 }) => {
   const [currentSession, setCurrentSession] = useState<ChatSession>(session);
   const [input, setInput] = useState('');
@@ -140,6 +143,32 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       return;
     }
 
+    let finalHistory = history;
+    let finalOverride = override;
+
+    // --- Per-Character Plugin Logic ---
+    if (character.pluginEnabled && character.pluginCode) {
+        addSystemMessage(`Executing character logic for ${character.name}...`);
+        try {
+            const sandbox = new PluginSandbox(handlePluginApiRequest);
+            await sandbox.loadCode(character.pluginCode);
+            
+            const hookPayload = { history, systemOverride: override };
+            // FIX: The executeHook method only takes one generic type argument.
+            const modifiedPayload = await sandbox.executeHook<{history: Message[], systemOverride?: string}>('beforeResponseGenerate', hookPayload);
+            
+            finalHistory = modifiedPayload.history;
+            finalOverride = modifiedPayload.systemOverride;
+            
+            sandbox.terminate();
+            logger.log(`Character logic for "${character.name}" executed successfully.`);
+        } catch (error) {
+            logger.error(`Error executing character logic for "${character.name}":`, error);
+            addSystemMessage(`Error in character logic for ${character.name}. See logs for details.`);
+        }
+    }
+
+
     setIsStreaming(true);
     const modelPlaceholder: Message = {
         role: 'model',
@@ -148,7 +177,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         characterId: character.id
     };
     
-    updateSession(current => ({ ...current, messages: [...history, modelPlaceholder] }));
+    updateSession(current => ({ ...current, messages: [...finalHistory, modelPlaceholder] }));
 
     let fullResponse = '';
     
@@ -156,7 +185,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         await streamChatResponse(
             character,
             participants,
-            history,
+            finalHistory,
             (chunk) => {
                 fullResponse += chunk;
                 // Use a ref here to prevent re-rendering on every chunk, which can be slow.
@@ -172,7 +201,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     }
                 }
             },
-            override
+            finalOverride
         );
     } catch (error) {
         logger.error("Streaming failed:", error);
@@ -207,7 +236,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             return { ...current, messages: updatedMessages };
         });
     }
-  }, [participants, isTtsEnabled, updateSession, addSystemMessage]);
+  }, [participants, isTtsEnabled, updateSession, addSystemMessage, handlePluginApiRequest]);
 
   const continueAutoConversation = useCallback(async () => {
     if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);

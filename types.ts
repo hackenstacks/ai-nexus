@@ -67,6 +67,9 @@ export interface Character {
   ragEnabled?: boolean;
   embeddingConfig?: EmbeddingConfig;
   ragSources?: RagSource[];
+  // New per-character plugin fields
+  pluginEnabled?: boolean;
+  pluginCode?: string;
   // New security fields
   keys?: CryptoKeys; // Character's own signing key pair
   signature?: string; // Signed by the USER's master private key
@@ -115,4 +118,11 @@ export interface VectorChunk {
     sourceId: string;
     content: string;
     embedding: number[];
+}
+
+// Type for the new confirmation modal
+export interface ConfirmationRequest {
+  message: React.ReactNode;
+  onConfirm: () => void;
+  onCancel: () => void;
 }

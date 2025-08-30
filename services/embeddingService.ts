@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, EmbedContentResponse } from "@google/genai";
 import { EmbeddingConfig } from "../types";
 import { logger } from "./loggingService";
 
@@ -69,15 +69,11 @@ const withRetry = async <T>(
 
 const generateGeminiEmbedding = async (text: string, config: EmbeddingConfig): Promise<number[]> => {
     const ai = getAiClient(config.apiKey);
-    // FIX: The property 'embed' does not exist on type 'GoogleGenAI'.
-    // Use the correct API path 'ai.models.embedContent' and adjust the request
-    // and response structure to match the modern Gemini API for single embeddings.
-    const result = await withRetry(() => ai.models.embedContent({
+    // FIX: Explicitly type the response from `withRetry` to allow accessing response properties.
+    const result: EmbedContentResponse = await withRetry(() => ai.models.embedContent({
         model: "text-embedding-004",
-        // Fix: Per the error, the 'embedContent' parameter is 'contents', not 'content'.
         contents: text
     }));
-    // Fix: Per the error, the response property is 'embeddings' (an array) not 'embedding'.
     return result.embeddings[0].values;
 };
 
