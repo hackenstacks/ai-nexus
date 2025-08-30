@@ -30,6 +30,55 @@ const getAiClient = (apiKey?: string): GoogleGenAI => {
 // --- OpenAI Compatible Service ---
 
 /**
+ * A generic wrapper for async functions that includes a retry mechanism with exponential backoff.
+ * This is useful for handling rate limiting (429) and transient network issues.
+ */
+const withRetry = async <T>(
+    apiCall: () => Promise<T>,
+    maxRetries = 3,
+    initialDelay = 2000
+): Promise<T> => {
+    let attempt = 0;
+    while (attempt < maxRetries) {
+        try {
+            return await apiCall();
+        } catch (error: any) {
+            let isRateLimitError = false;
+            let errorMessage = "An unknown error occurred";
+
+            if (error && typeof error.message === 'string') {
+                 errorMessage = error.message;
+                 // Check for 429 status code or RESOURCE_EXHAUSTED in the message.
+                 // This covers both plain text errors and JSON-formatted error strings.
+                 if (errorMessage.includes('429') || errorMessage.includes('RESOURCE_EXHAUSTED')) {
+                     isRateLimitError = true;
+                 }
+            }
+
+            // Retry only on rate limit errors
+            if (isRateLimitError) {
+                 if (attempt + 1 >= maxRetries) {
+                    logger.warn(`API rate limit exceeded. All ${maxRetries} retries failed. Rethrowing final error.`);
+                    throw error;
+                }
+                const delay = initialDelay * Math.pow(2, attempt) + Math.random() * 1000;
+                logger.warn(`API rate limit exceeded. Retrying in ${Math.round(delay / 1000)}s... (Attempt ${attempt + 1}/${maxRetries})`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                attempt++;
+                continue; // Continue to the next attempt
+            }
+            
+            // For any other error, rethrow it immediately
+            logger.error("API call failed with non-retriable error:", error);
+            throw error;
+        }
+    }
+    // This line should theoretically not be reached if the loop is correctly structured,
+    // but it's required for TypeScript to be sure a value is always returned or an error thrown.
+    throw new Error('API request failed to complete after all retries.');
+};
+
+/**
  * A wrapper for fetch that includes a retry mechanism with exponential backoff.
  * This is useful for handling rate limiting (429) and transient network issues.
  */
@@ -317,11 +366,11 @@ const streamGeminiChatResponse = async (
                 };
             });
 
-        const responseStream = await ai.models.generateContentStream({
+        const responseStream = await withRetry(() => ai.models.generateContentStream({
             model: 'gemini-2.5-flash',
             contents: contents,
             config: { systemInstruction: systemInstruction }
-        });
+        }));
 
         for await (const chunk of responseStream) {
             onChunk(chunk.text);
@@ -338,15 +387,15 @@ const generateGeminiImage = async (prompt: string, settings: { [key: string]: an
     const fullPrompt = buildImagePrompt(prompt, settings);
     logger.log("Generating Gemini image with full prompt:", { fullPrompt });
 
-    const response = await ai.models.generateImages({
-        model: 'imagen-3.0-generate-002',
+    const response = await withRetry(() => ai.models.generateImages({
+        model: 'imagen-4.0-generate-001',
         prompt: fullPrompt,
         config: {
             numberOfImages: 1,
             outputMimeType: 'image/png',
             aspectRatio: '1:1',
         },
-    });
+    }));
 
     if (response.generatedImages && response.generatedImages.length > 0) {
         return `data:image/png;base64,${response.generatedImages[0].image.imageBytes}`;
@@ -444,10 +493,10 @@ export const generateImageFromPrompt = async (prompt: string, settings?: { [key:
 export const generateContent = async (prompt: string, apiKey?: string): Promise<string> => {
   try {
     const ai = getAiClient(apiKey);
-    const response = await ai.models.generateContent({
+    const response = await withRetry(() => ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: prompt,
-    });
+    }));
     return response.text;
   } catch (error) {
     logger.error("Error in generateContent:", error);
@@ -463,11 +512,11 @@ export const streamGenericResponse = async (
 ): Promise<void> => {
     try {
         const ai = getAiClient(apiKey);
-        const responseStream = await ai.models.generateContentStream({
+        const responseStream = await withRetry(() => ai.models.generateContentStream({
             model: 'gemini-2.5-flash',
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
             config: { systemInstruction: systemInstruction }
-        });
+        }));
 
         for await (const chunk of responseStream) {
             onChunk(chunk.text);
