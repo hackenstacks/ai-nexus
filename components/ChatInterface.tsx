@@ -14,6 +14,8 @@ import { MemoryImportModal } from './MemoryImportModal';
 import { CheckCircleIcon } from './icons/CheckCircleIcon';
 import { ExclamationTriangleIcon } from './icons/ExclamationTriangleIcon';
 import { PluginSandbox } from '../services/pluginSandbox';
+import { ImageGenerationWindow } from './ImageGenerationWindow';
+import { PaletteIcon } from './icons/PaletteIcon';
 
 interface ChatInterfaceProps {
   session: ChatSession;
@@ -47,6 +49,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [isMemoryModalVisible, setIsMemoryModalVisible] = useState(false);
   const [isTtsEnabled, setIsTtsEnabled] = useState(false);
   const [verifiedSignatures, setVerifiedSignatures] = useState<Record<string, boolean>>({});
+  const [isImageWindowVisible, setIsImageWindowVisible] = useState(false);
 
   const nextSpeakerIndex = useRef(0);
   const systemOverride = useRef<string | null>(null);
@@ -515,6 +518,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             });
       }
   };
+
+  const handleGenerateImageInWindow = useCallback(async (prompt: string) => {
+    logger.log("Generating image in floating window for prompt:", prompt);
+    const payload = { type: 'direct', value: prompt };
+    const result = await onTriggerHook<{type: string, value: string}, {url?: string, error?: string}>('generateImage', payload);
+    return result;
+  }, [onTriggerHook]);
   
   const handleNarration = async (prompt: string, type: 'direct' | 'summary') => {
     let finalPrompt = prompt;
@@ -597,6 +607,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-nexus-gray-light-200 dark:bg-nexus-gray-900">
+      {isImageWindowVisible && (
+        <ImageGenerationWindow 
+            onGenerate={handleGenerateImageInWindow}
+            onClose={() => setIsImageWindowVisible(false)}
+        />
+      )}
       {isMemoryModalVisible && (
         <MemoryImportModal 
             allSessions={allChatSessions}
@@ -618,7 +634,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           <h2 className="text-xl font-bold text-nexus-gray-900 dark:text-white truncate">{session.name}</h2>
           <p className="text-sm text-nexus-gray-700 dark:text-nexus-gray-400 truncate">{participants.map(p=>p.name).join(', ')}</p>
         </div>
-        <div className="ml-4">
+        <div className="ml-4 flex items-center space-x-2">
+            <button 
+                onClick={() => setIsImageWindowVisible(!isImageWindowVisible)} 
+                title="Open Image Generation Window" 
+                className={`p-2 rounded-full transition-colors ${isImageWindowVisible ? 'bg-nexus-blue-600 text-white' : 'text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700'}`}
+            >
+                <PaletteIcon className="w-5 h-5" />
+            </button>
             <button 
                 onClick={() => setIsTtsEnabled(!isTtsEnabled)} 
                 title={isTtsEnabled ? "Disable Auto-TTS" : "Enable Auto-TTS for AI Responses"} 
