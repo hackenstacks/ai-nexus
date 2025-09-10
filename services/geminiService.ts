@@ -1,4 +1,5 @@
 
+
 // FIX: `GenerateContentStreamResponse` is not an exported member of `@google/genai`.
 // The correct type for a stream response is an async iterable of `GenerateContentResponse`.
 import { GoogleGenAI, GenerateContentResponse, GenerateImagesResponse } from "@google/genai";
@@ -9,7 +10,7 @@ import { logger } from "./loggingService";
 const lastRequestTimestamps = new Map<string, number>();
 
 // --- Gemini Client Setup ---
-const API_KEY = process.env.API_KEY;
+const API_KEY = typeof process !== 'undefined' ? process.env.API_KEY : undefined;
 let defaultAi: GoogleGenAI | null = null;
 
 if (API_KEY) {

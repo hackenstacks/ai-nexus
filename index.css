@@ -1,0 +1,42 @@
+/* index.css */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+body {
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Add a scrollbar style that fits the theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1F2937; /* nexus-gray-800 */
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #4B5563; /* nexus-gray-600 */
+  border-radius: 4px;
+  border: 2px solid #1F2937; /* nexus-gray-800 */
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #6B7280; /* nexus-gray-500 */
+}
+
+/* Light theme scrollbar */
+html:not(.dark) ::-webkit-scrollbar-track {
+    background: #E5E7EB; /* nexus-gray-200 */
+}
+
+html:not(.dark) ::-webkit-scrollbar-thumb {
+    background-color: #9CA3AF; /* nexus-gray-400 */
+    border: 2px solid #E5E7EB; /* nexus-gray-200 */
+}
+
+html:not(.dark) ::-webkit-scrollbar-thumb:hover {
+    background-color: #6B7280; /* nexus-gray-500 */
+}

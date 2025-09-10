@@ -3,7 +3,7 @@ import { EmbeddingConfig } from "../types";
 import { logger } from "./loggingService";
 
 // --- Gemini Client Setup ---
-const API_KEY = process.env.API_KEY;
+const API_KEY = typeof process !== 'undefined' ? process.env.API_KEY : undefined;
 let defaultAi: GoogleGenAI | null = null;
 
 if (API_KEY) {
