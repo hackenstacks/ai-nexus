@@ -19,11 +19,18 @@ export interface Message {
   publicKeyJwk?: JsonWebKey; // Public key of the signer for verification
 }
 
+export interface UISettings {
+  backgroundImage?: string;
+  bannerImage?: string;
+}
+
 export interface ChatSession {
   id: string;
   characterIds: string[];
   name: string;
   messages: Message[];
+  isArchived?: boolean;
+  uiSettings?: UISettings;
 }
 
 export interface ApiConfig {
@@ -74,6 +81,7 @@ export interface Character {
   keys?: CryptoKeys; // Character's own signing key pair
   signature?: string; // Signed by the USER's master private key
   userPublicKeyJwk?: JsonWebKey; // User's public key that signed this character
+  isArchived?: boolean;
 }
 
 export interface Plugin {

@@ -104,10 +104,31 @@ export const nexusToV2 = async (character: Character): Promise<any> => {
  * It prioritizes the private `_aiNexusData` block if it exists.
  */
 export const v2ToNexus = (card: any): Character | null => {
+    const isV2Spec = card.spec === 'chara_card_v2';
     const data = card.data || card; 
     
     if (!data || !data.name) {
-        return null; // Not a valid card
+        return null; // Not a valid card if it has no data or name
+    }
+
+    // A chat session has 'characterIds' and 'messages', which a char card does not.
+    // This is a strong negative signal to prevent mis-identification.
+    if (Array.isArray(data.characterIds) && Array.isArray(data.messages)) {
+        logger.debug(`File identified as Chat Session, not a character card. Skipping v2ToNexus.`);
+        return null;
+    }
+
+    // A char card usually has one of these properties. A chat session does not.
+    // This is a strong positive signal.
+    const hasCharFields = data.description !== undefined || 
+                          data.personality !== undefined || 
+                          data.char_persona !== undefined || 
+                          isV2Spec;
+
+    // If it has a name but none of the other character-defining fields, it's not a character.
+    if (!hasCharFields) {
+         logger.debug(`File does not contain character-specific fields (description, personality, etc.). Skipping v2ToNexus.`);
+        return null;
     }
 
     // --- Case 1: Perfect re-import from an AI Nexus-exported card ---

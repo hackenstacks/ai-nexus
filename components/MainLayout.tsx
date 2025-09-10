@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Character, ChatSession, AppData, Plugin, GeminiApiRequest, Message, CryptoKeys, RagSource, ConfirmationRequest } from '../types';
+import { Character, ChatSession, AppData, Plugin, GeminiApiRequest, Message, CryptoKeys, RagSource, ConfirmationRequest, UISettings } from '../types';
 import { loadData, saveData } from '../services/secureStorage';
 import * as ragService from '../services/ragService';
 import { CharacterList } from './CharacterList';
@@ -12,6 +12,7 @@ import { HelpModal } from './HelpModal';
 import { ChatSelectionModal } from './ChatSelectionModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import { ThemeSwitcher } from './ThemeSwitcher';
+import { AppearanceModal } from './AppearanceModal';
 import { PluginSandbox } from '../services/pluginSandbox';
 import * as geminiService from '../services/geminiService';
 import * as compatibilityService from '../services/compatibilityService';
@@ -25,6 +26,7 @@ import { HelpIcon } from './icons/HelpIcon';
 import { PlusIcon } from './icons/PlusIcon';
 import { ChatBubbleIcon } from './icons/ChatBubbleIcon';
 import { UsersIcon } from './icons/UsersIcon';
+import { PaletteIcon } from './icons/PaletteIcon';
 
 
 const defaultImagePlugin: Plugin = {
@@ -103,8 +105,11 @@ export const MainLayout: React.FC = () => {
     const [isLogViewerVisible, setIsLogViewerVisible] = useState(false);
     const [isHelpVisible, setIsHelpVisible] = useState(false);
     const [isChatModalVisible, setIsChatModalVisible] = useState(false);
+    const [isAppearanceModalVisible, setIsAppearanceModalVisible] = useState(false);
     const [confirmationRequest, setConfirmationRequest] = useState<ConfirmationRequest | null>(null);
     const [activePanel, setActivePanel] = useState<ActivePanel>('chats');
+    const [showArchivedChats, setShowArchivedChats] = useState(false);
+    const [showArchivedCharacters, setShowArchivedCharacters] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const sandboxes = useRef(new Map<string, PluginSandbox>()).current;
@@ -151,18 +156,36 @@ export const MainLayout: React.FC = () => {
                 logger.log("New user master key pair generated.");
             }
             
+            // --- UI Settings Migration (from global to per-chat) ---
+            const dataAsAny = data as any;
+            if (dataAsAny.uiSettings && Object.keys(dataAsAny.uiSettings).length > 0) {
+                logger.log("Migrating global UI settings to chat sessions...");
+                const globalSettings = dataAsAny.uiSettings;
+                delete dataAsAny.uiSettings;
+
+                data.chatSessions = data.chatSessions.map(cs => {
+                    if (!cs.uiSettings) {
+                        return { ...cs, uiSettings: globalSettings };
+                    }
+                    return cs;
+                });
+                
+                logger.log(`Applied global UI settings to relevant chat sessions.`);
+                dataNeedsSave = true;
+            }
+
             const defaultPlugins = [defaultImagePlugin, defaultTtsPlugin];
             if (!data.plugins) data.plugins = [];
 
             defaultPlugins.forEach(defaultPlugin => {
-                let hasPlugin = data.plugins.some(p => p.id === defaultPlugin.id);
+                let hasPlugin = data.plugins!.some(p => p.id === defaultPlugin.id);
                 if (!hasPlugin) {
-                    data.plugins.push(defaultPlugin);
+                    data.plugins!.push(defaultPlugin);
                     logger.log(`Default plugin injected: ${defaultPlugin.name}`);
                     dataNeedsSave = true;
                 } else {
                     // Ensure settings exist on existing default plugins
-                    data.plugins = data.plugins.map(p => {
+                    data.plugins = data.plugins!.map(p => {
                         if (p.id === defaultPlugin.id && !p.settings) {
                             dataNeedsSave = true;
                             return { ...p, settings: defaultPlugin.settings };
@@ -180,7 +203,7 @@ export const MainLayout: React.FC = () => {
             
             setAppData(data);
             if (data.chatSessions.length > 0) {
-                setSelectedChatId(data.chatSessions[0].id);
+                setSelectedChatId(data.chatSessions.find(cs => !cs.isArchived)?.id || data.chatSessions[0].id);
                 setActiveView('chats');
             } else {
                 // If there are no chats but there are characters, open the character panel
@@ -287,11 +310,42 @@ export const MainLayout: React.FC = () => {
         });
     }, [persistData]);
 
-    const handleDeleteCharacter = (characterId: string) => {
+    const handleArchiveCharacter = (characterId: string) => {
         const characterName = appData.characters.find(c => c.id === characterId)?.name || 'Unknown';
         setConfirmationRequest({
             message: (
-                <span>Are you sure you want to delete <strong>{characterName}</strong>? All chats involving this character and all associated knowledge files will also be permanently deleted. This action cannot be undone.</span>
+                <span>Are you sure you want to archive <strong>{characterName}</strong>? They will be hidden from the list but can be restored later.</span>
+            ),
+            onConfirm: () => {
+                const updatedCharacters = appData.characters.map(c => 
+                    c.id === characterId ? { ...c, isArchived: true } : c
+                );
+                
+                const updatedData = { ...appData, characters: updatedCharacters };
+                setAppData(updatedData);
+                persistData(updatedData);
+                logger.log(`Archived character: ${characterName}`);
+                setConfirmationRequest(null);
+            },
+            onCancel: () => setConfirmationRequest(null)
+        });
+    };
+
+    const handleRestoreCharacter = (characterId: string) => {
+        const updatedCharacters = appData.characters.map(c => 
+            c.id === characterId ? { ...c, isArchived: false } : c
+        );
+        const updatedData = { ...appData, characters: updatedCharacters };
+        setAppData(updatedData);
+        persistData(updatedData);
+        logger.log(`Restored character: ${appData.characters.find(c => c.id === characterId)?.name}`);
+    };
+
+    const handlePermanentlyDeleteCharacter = (characterId: string) => {
+        const characterName = appData.characters.find(c => c.id === characterId)?.name || 'Unknown';
+        setConfirmationRequest({
+            message: (
+                <span>Are you sure you want to permanently delete <strong>{characterName}</strong>? All chats involving this character and all associated knowledge files will also be permanently deleted. This action cannot be undone.</span>
             ),
             onConfirm: () => {
                 const characterToDelete = appData.characters.find(c => c.id === characterId);
@@ -309,7 +363,7 @@ export const MainLayout: React.FC = () => {
                 const updatedData = { ...appData, characters: updatedCharacters, chatSessions: updatedSessions };
                 setAppData(updatedData);
                 persistData(updatedData);
-                logger.log(`Deleted character and associated sessions: ${characterName}`);
+                logger.log(`Permanently deleted character and associated sessions: ${characterName}`);
 
                 if (selectedChatId && !updatedSessions.some(s => s.id === selectedChatId)) {
                     setSelectedChatId(updatedSessions.length > 0 ? updatedSessions[0].id : null);
@@ -353,7 +407,8 @@ export const MainLayout: React.FC = () => {
             id: crypto.randomUUID(),
             name,
             characterIds,
-            messages: []
+            messages: [],
+            uiSettings: {}
         };
         const updatedSessions = [...appData.chatSessions, newSession];
         const updatedData = { ...appData, chatSessions: updatedSessions };
@@ -366,10 +421,41 @@ export const MainLayout: React.FC = () => {
         setActivePanel('none');
     };
 
-    const handleDeleteChat = (sessionId: string) => {
+    const handleArchiveChat = (sessionId: string) => {
         const sessionName = appData.chatSessions.find(s => s.id === sessionId)?.name || 'Unknown Chat';
         setConfirmationRequest({
-            message: `Are you sure you want to delete the chat session "${sessionName}"?`,
+            message: `Are you sure you want to archive the chat session "${sessionName}"? It can be restored later.`,
+            onConfirm: () => {
+                const updatedSessions = appData.chatSessions.map(s => 
+                    s.id === sessionId ? { ...s, isArchived: true } : s
+                );
+                const updatedData = { ...appData, chatSessions: updatedSessions };
+                setAppData(updatedData);
+                persistData(updatedData);
+                if (selectedChatId === sessionId) {
+                    setSelectedChatId(updatedSessions.find(s => !s.isArchived)?.id || null);
+                }
+                logger.log(`Chat session archived: ${sessionId}`);
+                setConfirmationRequest(null);
+            },
+            onCancel: () => setConfirmationRequest(null)
+        });
+    };
+
+    const handleRestoreChat = (sessionId: string) => {
+        const updatedSessions = appData.chatSessions.map(s => 
+            s.id === sessionId ? { ...s, isArchived: false } : s
+        );
+        const updatedData = { ...appData, chatSessions: updatedSessions };
+        setAppData(updatedData);
+        persistData(updatedData);
+        logger.log(`Restored chat: ${appData.chatSessions.find(s => s.id === sessionId)?.name}`);
+    };
+
+    const handlePermanentlyDeleteChat = (sessionId: string) => {
+        const sessionName = appData.chatSessions.find(s => s.id === sessionId)?.name || 'Unknown Chat';
+        setConfirmationRequest({
+            message: `Are you sure you want to permanently delete the chat session "${sessionName}"? This action cannot be undone.`,
             onConfirm: () => {
                 const updatedSessions = appData.chatSessions.filter(s => s.id !== sessionId);
                 const updatedData = { ...appData, chatSessions: updatedSessions };
@@ -378,7 +464,7 @@ export const MainLayout: React.FC = () => {
                 if (selectedChatId === sessionId) {
                     setSelectedChatId(updatedSessions.length > 0 ? updatedSessions[0].id : null);
                 }
-                logger.log(`Chat session deleted: ${sessionId}`);
+                logger.log(`Chat session permanently deleted: ${sessionId}`);
                 setConfirmationRequest(null);
             },
             onCancel: () => setConfirmationRequest(null)
@@ -739,13 +825,13 @@ export const MainLayout: React.FC = () => {
             if (!imagePlugin) {
                 throw new Error("Image generation plugin not found.");
             }
-            logger.log("Generating avatar with prompt:", prompt);
+            logger.log("Generating image with prompt:", prompt);
             const imageUrl = await geminiService.generateImageFromPrompt(prompt, imagePlugin.settings);
-            logger.log("Avatar generated successfully.");
+            logger.log("Image generated successfully.");
             return imageUrl;
         } catch (error) {
-            logger.error("Failed to generate avatar image:", error);
-            alert(`Avatar generation failed. Please check plugin settings and logs. Details: ${error instanceof Error ? error.message : String(error)}`);
+            logger.error("Failed to generate image:", error);
+            alert(`Image generation failed. Please check plugin settings and logs. Details: ${error instanceof Error ? error.message : String(error)}`);
             return null;
         }
     }, [appData.plugins]);
@@ -761,9 +847,23 @@ export const MainLayout: React.FC = () => {
         setActiveView('chats');
     }
 
-    const renderMainContent = () => {
-        const selectedChat = appData.chatSessions.find(s => s.id === selectedChatId);
+    const handleUiSettingsUpdate = useCallback(async (newSettings: UISettings) => {
+        if (!selectedChatId) return;
 
+        const updatedSessions = appData.chatSessions.map(session => 
+            session.id === selectedChatId 
+                ? { ...session, uiSettings: newSettings } 
+                : session
+        );
+        const updatedData = { ...appData, chatSessions: updatedSessions };
+        setAppData(updatedData);
+        await persistData(updatedData);
+        logger.log("UI appearance settings updated for chat:", selectedChatId);
+    }, [appData, persistData, selectedChatId]);
+
+    const selectedChat = appData.chatSessions.find(s => s.id === selectedChatId);
+
+    const renderMainContent = () => {
         switch (view) {
             case 'form':
                 return <CharacterForm 
@@ -818,23 +918,31 @@ export const MainLayout: React.FC = () => {
                             </button>
                         </div>
                         <ChatList 
-                            chatSessions={appData.chatSessions}
+                            chatSessions={appData.chatSessions.filter(c => !!c.isArchived === showArchivedChats)}
                             characters={appData.characters}
                             selectedChatId={selectedChatId}
                             onSelectChat={handleSelectChat}
-                            onDeleteChat={handleDeleteChat}
+                            onDeleteChat={handleArchiveChat}
                             onExportChat={handleExportChat}
+                            showArchived={showArchivedChats}
+                            onToggleArchiveView={() => setShowArchivedChats(!showArchivedChats)}
+                            onRestoreChat={handleRestoreChat}
+                            onPermanentlyDeleteChat={handlePermanentlyDeleteChat}
                         />
                     </>
                 );
             case 'characters':
                 return (
                      <CharacterList 
-                        characters={appData.characters}
-                        onDeleteCharacter={handleDeleteCharacter}
+                        characters={appData.characters.filter(c => !!c.isArchived === showArchivedCharacters)}
+                        onDeleteCharacter={handleArchiveCharacter}
                         onEditCharacter={handleEditCharacter}
                         onAddNew={handleAddNewCharacter}
                         onExportCharacter={handleExportCharacter}
+                        showArchived={showArchivedCharacters}
+                        onToggleArchiveView={() => setShowArchivedCharacters(!showArchivedCharacters)}
+                        onRestoreCharacter={handleRestoreCharacter}
+                        onPermanentlyDeleteCharacter={handlePermanentlyDeleteCharacter}
                     />
                 );
             case 'none':
@@ -844,10 +952,29 @@ export const MainLayout: React.FC = () => {
 
 
     return (
-        <div className="relative h-screen w-screen overflow-hidden bg-nexus-light dark:bg-nexus-dark text-nexus-gray-900 dark:text-nexus-gray-200 font-sans flex">
+        <div 
+            className="relative h-screen w-screen overflow-hidden bg-nexus-light dark:bg-nexus-dark text-nexus-gray-900 dark:text-nexus-gray-200 font-sans flex transition-all duration-500"
+            style={selectedChat?.uiSettings?.backgroundImage ? {
+                backgroundImage: `url('${selectedChat.uiSettings.backgroundImage}')`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                backgroundRepeat: 'no-repeat',
+            } : {}}
+        >
+            <div className="absolute inset-0 bg-nexus-light/80 dark:bg-nexus-dark/80 backdrop-blur-sm"></div>
             {isLogViewerVisible && <LogViewer onClose={() => setIsLogViewerVisible(false)} />}
             {isHelpVisible && <HelpModal onClose={() => setIsHelpVisible(false)} />}
-            {isChatModalVisible && <ChatSelectionModal characters={appData.characters} onClose={() => setIsChatModalVisible(false)} onCreateChat={handleCreateChat}/>}
+            {isChatModalVisible && <ChatSelectionModal characters={appData.characters.filter(c => !c.isArchived)} onClose={() => setIsChatModalVisible(false)} onCreateChat={handleCreateChat}/>}
+            {isAppearanceModalVisible && (
+                <AppearanceModal 
+                    settings={selectedChat?.uiSettings || {}}
+                    currentChat={selectedChat}
+                    allCharacters={appData.characters}
+                    onUpdate={handleUiSettingsUpdate}
+                    onGenerateImage={handleGenerateImage}
+                    onClose={() => setIsAppearanceModalVisible(false)}
+                />
+            )}
             {confirmationRequest && (
                 <ConfirmationModal 
                     message={confirmationRequest.message}
@@ -856,7 +983,7 @@ export const MainLayout: React.FC = () => {
                 />
             )}
 
-            <div className="flex-shrink-0 bg-nexus-gray-light-100 dark:bg-nexus-gray-900 w-16 flex flex-col items-center justify-between py-4 border-r border-nexus-gray-light-300 dark:border-nexus-gray-700 z-20">
+            <div className="relative flex-shrink-0 bg-nexus-gray-light-100/80 dark:bg-nexus-gray-900/80 w-16 flex flex-col items-center justify-between py-4 border-r border-nexus-gray-light-300 dark:border-nexus-gray-700 z-20">
                 <div className="flex flex-col items-center space-y-2">
                     <button onClick={() => handlePanelToggle('chats')} title="Chats" className={`p-2 rounded-lg ${activeView === 'chats' ? 'bg-nexus-blue-600 text-white' : 'text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700'}`}>
                         <ChatBubbleIcon className="w-6 h-6" />
@@ -870,6 +997,9 @@ export const MainLayout: React.FC = () => {
 
                     <div className="w-8 border-t border-nexus-gray-light-300 dark:border-nexus-gray-700 my-2"></div>
                     
+                    <button onClick={() => setIsAppearanceModalVisible(true)} title="Appearance Settings" className="p-2 rounded-lg text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700">
+                        <PaletteIcon className="w-6 h-6" />
+                    </button>
                     <input type="file" ref={fileInputRef} onChange={handleImportData} accept=".json" className="hidden" />
                     <button onClick={handleSaveBackup} title="Save Full Backup" className="p-2 rounded-lg text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700">
                         <DownloadIcon className="w-6 h-6" />
@@ -890,12 +1020,19 @@ export const MainLayout: React.FC = () => {
                 </div>
             </div>
 
-            <aside className={`flex-shrink-0 transform transition-all duration-300 ease-in-out bg-nexus-gray-light-200 dark:bg-nexus-gray-800 border-r border-nexus-gray-light-300 dark:border-nexus-gray-700 flex flex-col overflow-hidden ${activePanel !== 'none' ? 'w-80 p-4' : 'w-0 p-0 border-r-0'}`}>
+            <aside className={`relative flex-shrink-0 transform transition-all duration-300 ease-in-out bg-nexus-gray-light-200/80 dark:bg-nexus-gray-800/80 border-r border-nexus-gray-light-300 dark:border-nexus-gray-700 flex flex-col overflow-hidden ${activePanel !== 'none' ? 'w-80 p-4' : 'w-0 p-0 border-r-0'}`}>
                 {renderPanelContent()}
             </aside>
             
-            <main className="flex-1 flex flex-col h-full overflow-hidden">
-                {renderMainContent()}
+            <main className="relative flex-1 flex flex-col h-full overflow-hidden">
+                {selectedChat?.uiSettings?.bannerImage && (
+                    <div className="w-full h-32 md:h-48 flex-shrink-0 bg-black/20">
+                        <img src={selectedChat.uiSettings.bannerImage} className="w-full h-full object-cover" alt="Banner"/>
+                    </div>
+                )}
+                <div className="flex-1 min-h-0">
+                    {renderMainContent()}
+                </div>
             </main>
         </div>
     );

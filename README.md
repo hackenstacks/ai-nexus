@@ -7,6 +7,7 @@ It is designed for interoperability, supporting the import and export of charact
 ## ✨ Features
 
 - **🔒 Secure Local Storage**: All your characters, conversations, and plugins are stored locally in your browser's IndexedDB and encrypted with a master password using the Web Crypto API (PBKDF2 and AES-GCM).
+- **🎨 Per-Chat Customization**: Personalize each conversation with its own unique background and banner images. Upload your own, or use the built-in AI to generate atmospheric images based on your current chat context or the active characters' personas.
 - **Compatibility First**:
   - **Import Character Cards**: Import character `.json` files compatible with formats like Character Card V2 used by TavernAI, SillyTavern, Chub, etc.
   - **Export Universal Cards**: Export your characters in a compatible V2 format, including a base64-encoded avatar, for use in other applications.
@@ -30,6 +31,7 @@ It is designed for interoperability, supporting the import and export of charact
   - Per-character or per-plugin configuration to use custom Gemini API keys.
   - Support for any OpenAI-compatible API, including local models like Ollama or LM Studio.
 - **💾 Granular Data Management**:
+  - **Archiving**: "Delete" characters and chats to archive them instead of permanently removing them. View and restore them from the archive at any time.
   - **Full Backup**: Export and import your entire application data (characters, chats, plugins) in a single JSON file.
   - **Individual Export**: Export single characters or chat histories.
   - **Smart Import**: The app automatically detects whether you are importing a full backup, a character card, or a chat session.
