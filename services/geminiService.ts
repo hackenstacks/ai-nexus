@@ -1,3 +1,4 @@
+
 // FIX: `GenerateContentStreamResponse` is not an exported member of `@google/genai`.
 // The correct type for a stream response is an async iterable of `GenerateContentResponse`.
 import { GoogleGenAI, GenerateContentResponse, GenerateImagesResponse } from "@google/genai";
@@ -337,10 +338,50 @@ const buildSystemInstruction = (character: Character, allParticipants: Character
         instruction += "== LORE (Key Facts) ==\n";
         instruction += character.lore.filter(fact => fact.trim() !== '').map(fact => `- ${fact}`).join('\n') + '\n\n';
     }
+
+    instruction += "== TOOLS ==\n";
+    instruction += "You have the ability to generate images. To do so, include a special command in your response: [generate_image: A detailed description of the image you want to create]. You can place this command anywhere in your response. The system will detect it, generate the image, and display it alongside your text.\n\n";
     
     instruction += "Engage in conversation based on this complete persona. Do not break character. Respond to the user's last message.";
 
     return instruction;
+};
+
+const normalizeGeminiHistory = (history: Message[]) => {
+    const relevantMessages = history.filter(msg => msg.role === 'user' || msg.role === 'model' || msg.role === 'narrator');
+    if (relevantMessages.length === 0) return [];
+
+    const mapped = relevantMessages.map(msg => {
+        // Treat narrator messages as user inputs so the AI can react to them
+        const role = msg.role === 'model' ? 'model' : 'user';
+        const content = msg.role === 'narrator' ? `[NARRATOR]: ${msg.content}` : msg.content;
+        return { role, parts: [{ text: content }] };
+    });
+
+    const merged = [];
+    if (mapped.length > 0) {
+        merged.push(mapped[0]);
+        for (let i = 1; i < mapped.length; i++) {
+            const prev = merged[merged.length - 1];
+            const curr = mapped[i];
+            if (prev.role === curr.role) {
+                // Merge consecutive messages of the same role
+                prev.parts[0].text += `\n\n${curr.parts[0].text}`;
+            } else {
+                merged.push(curr);
+            }
+        }
+    }
+    
+    // FINAL CHECK: The Gemini API requires a user message to respond to.
+    // If the last message is from the model, it means the user wants the AI to continue.
+    // We change its role to 'user' to make the request valid.
+    if (merged.length > 0 && merged[merged.length - 1].role === 'model') {
+        logger.debug("Last message was from model, changing role to user for API compatibility.");
+        merged[merged.length - 1].role = 'user';
+    }
+
+    return merged;
 };
 
 const streamGeminiChatResponse = async (
@@ -357,16 +398,11 @@ const streamGeminiChatResponse = async (
 
         const ai = getAiClient(customApiKey);
         
-        const contents = history
-            .filter(msg => msg.role === 'user' || msg.role === 'model' || msg.role === 'narrator')
-            .map(msg => {
-                const role = msg.role === 'model' ? 'model' : 'user';
-                const content = msg.role === 'narrator' ? `[NARRATOR]: ${msg.content}` : msg.content;
-                return {
-                    role: role,
-                    parts: [{ text: content }]
-                };
-            });
+        const contents = normalizeGeminiHistory(history);
+        if (contents.length === 0) {
+            logger.warn("streamGeminiChatResponse was called with an empty effective history. Aborting.");
+            return;
+        }
 
         // FIX: Type 'unknown' must have a '[Symbol.asyncIterator]()' method that returns an async iterator. Explicitly typing the response stream.
         const responseStream: AsyncGenerator<GenerateContentResponse> = await withRetry(() => ai.models.generateContentStream({

@@ -67,8 +67,9 @@ const processUtteranceQueue = () => {
 
     utterance.onerror = (event) => {
         logger.error('TTS Utterance Error:', event.error || 'synthesis-failed');
-        isCurrentlySpeaking = false;
-        processUtteranceQueue(); // Skip the failed utterance and try the next one
+        // FIX: If an utterance fails, cancel the entire queue to prevent a flood of subsequent errors,
+        // which can happen if the browser's speech synthesis engine enters a bad state.
+        cancel();
     };
 
     window.speechSynthesis.speak(utterance);

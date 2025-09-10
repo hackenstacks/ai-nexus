@@ -22,6 +22,7 @@ export interface Message {
 export interface UISettings {
   backgroundImage?: string;
   bannerImage?: string;
+  avatarSize?: 'small' | 'medium' | 'large';
 }
 
 export interface ChatSession {

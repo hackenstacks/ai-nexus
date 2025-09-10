@@ -74,6 +74,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     return allCharacters.filter(c => currentSession.characterIds.includes(c.id));
   }, [allCharacters, currentSession.characterIds]);
 
+  const avatarSizeClass = useMemo(() => {
+    switch (currentSession.uiSettings?.avatarSize) {
+      case 'small': return 'w-8 h-8';
+      case 'large': return 'w-12 h-12';
+      default: return 'w-10 h-10'; // Medium is default
+    }
+  }, [currentSession.uiSettings?.avatarSize]);
+
   useEffect(() => {
     // When the session prop changes from outside, reset the state.
     // Also stop any ongoing auto-conversation.
@@ -212,32 +220,51 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     } finally {
         setIsStreaming(false);
 
-        let finalMessage: Message = { ...modelPlaceholder, content: fullResponse };
-        
-        if (character.keys) {
-            try {
-                const privateKey = await cryptoService.importKey(character.keys.privateKey, 'sign');
-                finalMessage.publicKeyJwk = character.keys.publicKey;
-                const dataToSign: Partial<Message> = { ...finalMessage };
-                delete dataToSign.signature;
-                delete dataToSign.publicKeyJwk;
-                const canonicalString = cryptoService.createCanonicalString(dataToSign);
-                finalMessage.signature = await cryptoService.sign(canonicalString, privateKey);
-            } catch (e) {
-                logger.error(`Failed to sign message for character ${character.name}`, e);
+        const imageRegex = /\[generate_image:\s*(.*?)\]/g;
+        const imageMatches = [...fullResponse.matchAll(imageRegex)];
+        const cleanedResponse = fullResponse.replace(imageRegex, '').trim();
+
+        if (cleanedResponse.length > 0 || imageMatches.length > 0) {
+            let finalMessage: Message = { ...modelPlaceholder, content: cleanedResponse };
+            
+            if (character.keys) {
+                try {
+                    const privateKey = await cryptoService.importKey(character.keys.privateKey, 'sign');
+                    finalMessage.publicKeyJwk = character.keys.publicKey;
+                    const dataToSign: Partial<Message> = { ...finalMessage };
+                    delete dataToSign.signature;
+                    delete dataToSign.publicKeyJwk;
+                    const canonicalString = cryptoService.createCanonicalString(dataToSign);
+                    finalMessage.signature = await cryptoService.sign(canonicalString, privateKey);
+                } catch (e) {
+                    logger.error(`Failed to sign message for character ${character.name}`, e);
+                }
             }
+            
+            if (isTtsEnabled && cleanedResponse) {
+                ttsService.speak(cleanedResponse, character.voiceURI);
+            }
+            
+            updateSession(current => {
+                const updatedMessages = current.messages.map(msg =>
+                    msg.timestamp === modelPlaceholder.timestamp ? finalMessage : msg
+                );
+                return { ...current, messages: updatedMessages };
+            });
+
+            for (const match of imageMatches) {
+                const prompt = match[1];
+                if (prompt) {
+                    handleImageGeneration(prompt, 'direct');
+                }
+            }
+        } else {
+            // If response was empty after cleaning, remove the placeholder
+            updateSession(current => ({
+                ...current,
+                messages: current.messages.filter(m => m.timestamp !== modelPlaceholder.timestamp)
+            }));
         }
-        
-        if (isTtsEnabled) {
-            ttsService.speak(fullResponse, character.voiceURI);
-        }
-        
-        updateSession(current => {
-            const updatedMessages = current.messages.map(msg =>
-                msg.timestamp === modelPlaceholder.timestamp ? finalMessage : msg
-            );
-            return { ...current, messages: updatedMessages };
-        });
     }
   }, [participants, isTtsEnabled, updateSession, addSystemMessage, handlePluginApiRequest]);
 
@@ -624,31 +651,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             }}
         />
       )}
-      <header className="flex items-center p-4 border-b border-nexus-gray-light-300 dark:border-nexus-gray-700">
+      <header className="flex items-center p-3 border-b border-nexus-gray-light-300 dark:border-nexus-gray-700">
         <div className="flex -space-x-4">
             {participants.slice(0, 3).map(p => (
                 <img key={p.id} src={p.avatarUrl || `https://picsum.photos/seed/${p.id}/40/40`} alt={p.name} className="w-10 h-10 rounded-full border-2 border-nexus-gray-light-200 dark:border-nexus-gray-900"/>
             ))}
         </div>
         <div className="ml-4 flex-1 min-w-0">
-          <h2 className="text-xl font-bold text-nexus-gray-900 dark:text-white truncate">{session.name}</h2>
+          <h2 className="text-lg font-bold text-nexus-gray-900 dark:text-white truncate">{session.name}</h2>
           <p className="text-sm text-nexus-gray-700 dark:text-nexus-gray-400 truncate">{participants.map(p=>p.name).join(', ')}</p>
-        </div>
-        <div className="ml-4 flex items-center space-x-2">
-            <button 
-                onClick={() => setIsImageWindowVisible(!isImageWindowVisible)} 
-                title="Open Image Generation Window" 
-                className={`p-2 rounded-full transition-colors ${isImageWindowVisible ? 'bg-nexus-blue-600 text-white' : 'text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700'}`}
-            >
-                <PaletteIcon className="w-5 h-5" />
-            </button>
-            <button 
-                onClick={() => setIsTtsEnabled(!isTtsEnabled)} 
-                title={isTtsEnabled ? "Disable Auto-TTS" : "Enable Auto-TTS for AI Responses"} 
-                className={`p-2 rounded-full transition-colors ${isTtsEnabled ? 'bg-nexus-blue-600 text-white' : 'text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700'}`}
-            >
-                <SpeakerIcon className="w-5 h-5" />
-            </button>
         </div>
       </header>
 
@@ -678,7 +689,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             return (
               <div key={index} className={`flex items-start gap-3 group ${isUser ? 'justify-end' : 'justify-start'}`}>
                 {msg.role === 'model' && msgCharacter && (
-                  <img src={msgCharacter.avatarUrl || `https://picsum.photos/seed/${msgCharacter.id}/40/40`} alt={msgCharacter.name} className="w-8 h-8 rounded-full flex-shrink-0" title={msgCharacter.name}/>
+                  <img src={msgCharacter.avatarUrl || `https://picsum.photos/seed/${msgCharacter.id}/40/40`} alt={msgCharacter.name} className={`${avatarSizeClass} rounded-full flex-shrink-0`} title={msgCharacter.name}/>
                 )}
                 <div className={`relative max-w-xl p-3 rounded-lg ${
                     isUser
@@ -721,16 +732,30 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             rows={1}
             disabled={isInputDisabled}
           />
-          <button onClick={() => setIsMemoryModalVisible(true)} title="Import Memory From Another Chat" className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white disabled:opacity-50" disabled={isInputDisabled}>
+          <button 
+                onClick={() => setIsImageWindowVisible(!isImageWindowVisible)} 
+                title="Open Image Generation Window" 
+                className={`p-2 rounded-full transition-colors ${isImageWindowVisible ? 'text-nexus-blue-500' : 'text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-blue-500'}`} disabled={isInputDisabled}
+            >
+                <PaletteIcon className="w-6 h-6" />
+            </button>
+            <button 
+                onClick={() => setIsTtsEnabled(!isTtsEnabled)} 
+                title={isTtsEnabled ? "Disable Auto-TTS" : "Enable Auto-TTS for AI Responses"} 
+                className={`p-2 rounded-full transition-colors ${isTtsEnabled ? 'text-nexus-blue-500' : 'text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-blue-500'}`} disabled={isInputDisabled}
+            >
+                <SpeakerIcon className="w-6 h-6" />
+            </button>
+          <button onClick={() => setIsMemoryModalVisible(true)} title="Import Memory From Another Chat" className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-blue-500 disabled:opacity-50" disabled={isInputDisabled}>
             <BrainIcon className="w-6 h-6" />
           </button>
-          <button onClick={handleNarratorButtonClick} title="Narrate (Single-click for prompt, double-click for auto)" className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white disabled:opacity-50" disabled={isInputDisabled}>
+          <button onClick={handleNarratorButtonClick} title="Narrate (Single-click for prompt, double-click for auto)" className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-blue-500 disabled:opacity-50" disabled={isInputDisabled}>
             <BookIcon className="w-6 h-6" />
           </button>
-          <button onClick={handleImageButtonClick} title="Generate Image (Single-click for prompt, double-click for auto)" className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white disabled:opacity-50" disabled={isInputDisabled}>
+          <button onClick={handleImageButtonClick} title="Generate Image (Single-click for prompt, double-click for auto)" className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-blue-500 disabled:opacity-50" disabled={isInputDisabled}>
             <ImageIcon className="w-6 h-6" />
           </button>
-          <button onClick={handleSendMessage} disabled={!input.trim() || isInputDisabled} className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white disabled:opacity-50" title="Send message">
+          <button onClick={handleSendMessage} disabled={!input.trim() || isInputDisabled} className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-blue-500 disabled:opacity-50" title="Send message">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" /></svg>
           </button>
         </div>

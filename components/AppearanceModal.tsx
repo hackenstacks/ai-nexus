@@ -148,6 +148,10 @@ export const AppearanceModal: React.FC<AppearanceModalProps> = ({ settings, curr
     onUpdate(newSettings);
   };
 
+  const handleAvatarSizeChange = (size: 'small' | 'medium' | 'large') => {
+    onUpdate({ ...settings, avatarSize: size });
+  };
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 z-40 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-nexus-gray-light-100 dark:bg-nexus-gray-800 rounded-lg shadow-xl w-full max-w-2xl flex flex-col" onClick={e => e.stopPropagation()}>
@@ -177,6 +181,27 @@ export const AppearanceModal: React.FC<AppearanceModalProps> = ({ settings, curr
             canAutoGenerate={canAutoGenerate}
             canCharacterGenerate={canCharacterGenerate}
           />
+
+          <div className="space-y-3 pt-6 border-t border-nexus-gray-light-300 dark:border-nexus-gray-700">
+            <h3 className="text-lg font-medium text-nexus-gray-900 dark:text-white">Avatar Size</h3>
+            <p className="text-sm text-nexus-gray-700 dark:text-nexus-gray-400">Controls the size of character avatars displayed next to messages in this chat.</p>
+            <div className="flex items-center space-x-4">
+                {(['small', 'medium', 'large'] as const).map(size => (
+                    <label key={size} className="flex items-center space-x-2 cursor-pointer">
+                        <input
+                            type="radio"
+                            name="avatar-size"
+                            value={size}
+                            checked={(settings.avatarSize || 'medium') === size}
+                            onChange={() => handleAvatarSizeChange(size)}
+                            className="h-4 w-4 text-nexus-blue-600 border-nexus-gray-500 dark:border-nexus-gray-600 bg-nexus-gray-light-100 dark:bg-nexus-gray-900 focus:ring-nexus-blue-500"
+                        />
+                        <span className="capitalize text-nexus-gray-800 dark:text-nexus-gray-300">{size}</span>
+                    </label>
+                ))}
+            </div>
+          </div>
+
         </div>
 
         <footer className="p-4 border-t border-nexus-gray-light-300 dark:border-nexus-gray-700 flex justify-end">

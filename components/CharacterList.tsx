@@ -65,7 +65,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
                 <img
                   src={char.avatarUrl || `https://picsum.photos/seed/${char.id}/40/40`}
                   alt={char.name}
-                  className="w-8 h-8 rounded-full mr-3 flex-shrink-0"
+                  className="w-10 h-10 rounded-full mr-3 flex-shrink-0"
                 />
                 <div className="min-w-0">
                   <p className="font-semibold truncate text-sm">{char.name}</p>
