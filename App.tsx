@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { AuthScreen } from './components/AuthScreen';
-import { MainLayout } from './components/MainLayout';
-import { hasMasterPassword, verifyMasterPassword } from './services/secureStorage';
-import { logger } from './services/loggingService';
+import { AuthScreen } from './components/AuthScreen.tsx';
+import { MainLayout } from './components/MainLayout.tsx';
+import { hasMasterPassword, verifyMasterPassword } from './services/secureStorage.ts';
+import { logger } from './services/loggingService.ts';
+import { applyTheme } from './services/themeService.ts';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isPasswordSet, setIsPasswordSet] = useState<boolean>(false);
 
   useEffect(() => {
+    applyTheme(); // Apply theme on initial load
     logger.log("Application starting up...");
     const checkPassword = async () => {
       const isSet = await hasMasterPassword();
@@ -38,7 +40,7 @@ const App: React.FC = () => {
 
   if (!isAuthenticated) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-nexus-gray-light-200 dark:bg-nexus-dark">
+      <div className="flex items-center justify-center min-h-screen bg-background-secondary">
         <AuthScreen
           isPasswordSet={isPasswordSet}
           onLogin={handleLogin}

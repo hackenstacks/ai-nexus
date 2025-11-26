@@ -1,10 +1,10 @@
 import React from 'react';
-import { ChatSession, Character } from '../types';
-import { TrashIcon } from './icons/TrashIcon';
-import { UsersIcon } from './icons/UsersIcon';
-import { DownloadIcon } from './icons/DownloadIcon';
-import { ArchiveBoxIcon } from './icons/ArchiveBoxIcon';
-import { RestoreIcon } from './icons/RestoreIcon';
+import { ChatSession, Character } from '../types.ts';
+import { TrashIcon } from './icons/TrashIcon.tsx';
+import { UsersIcon } from './icons/UsersIcon.tsx';
+import { DownloadIcon } from './icons/DownloadIcon.tsx';
+import { ArchiveBoxIcon } from './icons/ArchiveBoxIcon.tsx';
+import { RestoreIcon } from './icons/RestoreIcon.tsx';
 
 interface ChatListProps {
   chatSessions: ChatSession[];
@@ -37,7 +37,7 @@ export const ChatList: React.FC<ChatListProps> = ({
     <div className="flex-1 flex flex-col min-h-0">
        <button 
         onClick={onToggleArchiveView}
-        className="w-full flex items-center justify-center space-x-2 mb-2 text-sm py-2 px-3 rounded-md text-nexus-gray-800 dark:text-nexus-gray-300 bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors"
+        className="w-full flex items-center justify-center space-x-2 mb-2 text-sm py-2 px-3 rounded-md text-text-primary bg-background-tertiary hover:bg-opacity-80 transition-colors"
       >
         <ArchiveBoxIcon className="w-5 h-5" />
         <span>{showArchived ? 'View Active Chats' : 'View Archived Chats'}</span>
@@ -45,7 +45,7 @@ export const ChatList: React.FC<ChatListProps> = ({
 
       <div className="overflow-y-auto pr-2 space-y-2">
         {chatSessions.length === 0 ? (
-          <p className="text-nexus-gray-700 dark:text-nexus-gray-400 text-sm text-center py-4">
+          <p className="text-text-secondary text-sm text-center py-4">
             {showArchived ? 'No archived chats.' : "No chats yet. Click '+' to start a new conversation."}
           </p>
         ) : (
@@ -58,8 +58,8 @@ export const ChatList: React.FC<ChatListProps> = ({
                 onClick={() => onSelectChat(session.id)}
                 className={`group flex items-center p-3 rounded-lg cursor-pointer transition-colors ${
                   selectedChatId === session.id
-                    ? 'bg-nexus-blue-600 text-white'
-                    : 'bg-nexus-gray-light-100 dark:bg-nexus-gray-900 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700'
+                    ? 'bg-primary-600 text-text-accent'
+                    : 'bg-background-primary hover:bg-background-tertiary'
                 }`}
               >
                 <div className="flex-shrink-0 mr-3">
@@ -70,14 +70,14 @@ export const ChatList: React.FC<ChatListProps> = ({
                       className="w-10 h-10 rounded-full"
                     />
                   ) : (
-                    <div className="w-10 h-10 rounded-full bg-nexus-gray-light-400 dark:bg-nexus-gray-700 flex items-center justify-center">
-                        <UsersIcon className="w-6 h-6 text-nexus-gray-800 dark:text-nexus-gray-300" />
+                    <div className="w-10 h-10 rounded-full bg-background-tertiary flex items-center justify-center">
+                        <UsersIcon className="w-6 h-6 text-text-primary" />
                     </div>
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className={`font-semibold truncate ${selectedChatId === session.id ? 'text-white' : 'text-nexus-gray-900 dark:text-white'}`}>{session.name}</p>
-                  <p className={`text-sm truncate ${selectedChatId === session.id ? 'text-nexus-gray-200' : 'text-nexus-gray-700 dark:text-nexus-gray-400 group-hover:text-nexus-gray-800 dark:group-hover:text-nexus-gray-300'}`}>
+                  <p className={`font-semibold truncate ${selectedChatId === session.id ? 'text-text-accent' : 'text-text-primary'}`}>{session.name}</p>
+                  <p className={`text-sm truncate ${selectedChatId === session.id ? 'text-white/70' : 'text-text-secondary group-hover:text-text-primary'}`}>
                     {participants.length > 0 ? participants.map(p => p.name).join(', ') : 'Empty Chat'}
                   </p>
                 </div>
@@ -86,14 +86,14 @@ export const ChatList: React.FC<ChatListProps> = ({
                         <>
                             <button
                                 onClick={(e) => { e.stopPropagation(); onRestoreChat(session.id); }}
-                                className={`p-1 rounded hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 ${selectedChatId === session.id ? 'text-nexus-gray-200 hover:text-white' : 'text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white'}`}
+                                className={`p-1 rounded hover:bg-background-primary ${selectedChatId === session.id ? 'text-white/70 hover:text-white' : 'text-text-secondary hover:text-text-primary'}`}
                                 title="Restore Chat"
                             >
                                 <RestoreIcon className="w-4 h-4" />
                             </button>
                              <button
                                 onClick={(e) => { e.stopPropagation(); onPermanentlyDeleteChat(session.id); }}
-                                className={`p-1 rounded hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 hover:text-red-500 dark:hover:text-red-400 ${selectedChatId === session.id ? 'text-nexus-gray-200' : 'text-nexus-gray-600 dark:text-nexus-gray-400'}`}
+                                className={`p-1 rounded hover:bg-background-primary hover:text-accent-red ${selectedChatId === session.id ? 'text-white/70' : 'text-text-secondary'}`}
                                 title="Delete Permanently"
                             >
                                 <TrashIcon className="w-4 h-4" />
@@ -103,14 +103,14 @@ export const ChatList: React.FC<ChatListProps> = ({
                         <>
                             <button
                                 onClick={(e) => { e.stopPropagation(); onExportChat(session.id); }}
-                                className={`p-1 rounded  hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 ${selectedChatId === session.id ? 'text-nexus-gray-200 hover:text-white' : 'text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white'}`}
+                                className={`p-1 rounded hover:bg-background-tertiary ${selectedChatId === session.id ? 'text-white/70 hover:text-white' : 'text-text-secondary hover:text-text-primary'}`}
                                 title="Export Chat"
                             >
                                 <DownloadIcon className="w-4 h-4" />
                             </button>
                             <button
                                 onClick={(e) => { e.stopPropagation(); onDeleteChat(session.id); }}
-                                className={`p-1 rounded hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 hover:text-red-500 dark:hover:text-red-400 ${selectedChatId === session.id ? 'text-nexus-gray-200' : 'text-nexus-gray-600 dark:text-nexus-gray-400'}`}
+                                className={`p-1 rounded hover:bg-background-tertiary hover:text-accent-red ${selectedChatId === session.id ? 'text-white/70' : 'text-text-secondary'}`}
                                 title="Archive Chat"
                             >
                                 <TrashIcon className="w-4 h-4" />

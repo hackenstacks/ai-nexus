@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { logger, LogEntry, LogLevel } from '../services/loggingService';
-import { TrashIcon } from './icons/TrashIcon';
+import { logger, LogEntry, LogLevel } from '../services/loggingService.ts';
+import { TrashIcon } from './icons/TrashIcon.tsx';
 
 interface LogViewerProps {
   onClose: () => void;

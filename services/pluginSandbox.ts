@@ -1,5 +1,5 @@
-import { GeminiApiRequest, PluginApiResponse } from "../types";
-import { logger } from "./loggingService";
+import { GeminiApiRequest, PluginApiResponse } from "../types.ts";
+import { logger } from "./loggingService.ts";
 
 // This string contains the code that will be executed inside the Web Worker.
 // It creates a sandboxed environment for the plugin code.

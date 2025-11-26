@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plugin, ApiConfig, ConfirmationRequest } from '../types';
-import { logger } from '../services/loggingService';
-import { PlusIcon } from './icons/PlusIcon';
-import { TrashIcon } from './icons/TrashIcon';
-import { EditIcon } from './icons/EditIcon';
-import { PowerIcon } from './icons/PowerIcon';
-import { UploadIcon } from './icons/UploadIcon';
-import { DownloadIcon } from './icons/DownloadIcon';
+import { Plugin, ApiConfig, ConfirmationRequest } from '../types.ts';
+import { logger } from '../services/loggingService.ts';
+import { PlusIcon } from './icons/PlusIcon.tsx';
+import { TrashIcon } from './icons/TrashIcon.tsx';
+import { EditIcon } from './icons/EditIcon.tsx';
+import { PowerIcon } from './icons/PowerIcon.tsx';
+import { UploadIcon } from './icons/UploadIcon.tsx';
+import { DownloadIcon } from './icons/DownloadIcon.tsx';
 
 interface PluginManagerProps {
   plugins: Plugin[];

@@ -1,26 +1,28 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Character, ChatSession, Message, CryptoKeys, GeminiApiRequest } from '../types';
-import { streamChatResponse, streamGenericResponse, generateContent } from '../services/geminiService';
-import * as cryptoService from '../services/cryptoService';
-import * as ttsService from '../services/ttsService';
-import * as ragService from '../services/ragService';
-import { logger } from '../services/loggingService';
-import { ChatBubbleIcon } from './icons/ChatBubbleIcon';
-import { ImageIcon } from './icons/ImageIcon';
-import { BookIcon } from './icons/BookIcon';
-import { BrainIcon } from './icons/BrainIcon';
-import { SpeakerIcon } from './icons/SpeakerIcon';
-import { MemoryImportModal } from './MemoryImportModal';
-import { CheckCircleIcon } from './icons/CheckCircleIcon';
-import { ExclamationTriangleIcon } from './icons/ExclamationTriangleIcon';
-import { PluginSandbox } from '../services/pluginSandbox';
-import { ImageGenerationWindow } from './ImageGenerationWindow';
-import { PaletteIcon } from './icons/PaletteIcon';
+import { Character, ChatSession, Message, CryptoKeys, GeminiApiRequest, Lorebook } from '../types.ts';
+import { streamChatResponse, streamGenericResponse, generateContent } from '../services/geminiService.ts';
+import * as cryptoService from '../services/cryptoService.ts';
+import * as ttsService from '../services/ttsService.ts';
+import * as ragService from '../services/ragService.ts';
+import * as lorebookService from '../services/lorebookService.ts';
+import { logger } from '../services/loggingService.ts';
+import { ChatBubbleIcon } from './icons/ChatBubbleIcon.tsx';
+import { ImageIcon } from './icons/ImageIcon.tsx';
+import { BookIcon } from './icons/BookIcon.tsx';
+import { BrainIcon } from './icons/BrainIcon.tsx';
+import { SpeakerIcon } from './icons/SpeakerIcon.tsx';
+import { MemoryImportModal } from './MemoryImportModal.tsx';
+import { CheckCircleIcon } from './icons/CheckCircleIcon.tsx';
+import { ExclamationTriangleIcon } from './icons/ExclamationTriangleIcon.tsx';
+import { PluginSandbox } from '../services/pluginSandbox.ts';
+import { ImageGenerationWindow } from './ImageGenerationWindow.tsx';
+import { PaletteIcon } from './icons/PaletteIcon.tsx';
 
 interface ChatInterfaceProps {
   session: ChatSession;
   allCharacters: Character[];
   allChatSessions: ChatSession[];
+  allLorebooks: Lorebook[];
   userKeys?: CryptoKeys;
   onSessionUpdate: (session: ChatSession) => void;
   onCharacterUpdate: (character: Character) => void;
@@ -34,6 +36,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     session, 
     allCharacters, 
     allChatSessions,
+    allLorebooks,
     userKeys, 
     onSessionUpdate, 
     onCharacterUpdate, 
@@ -74,6 +77,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     return allCharacters.filter(c => currentSession.characterIds.includes(c.id));
   }, [allCharacters, currentSession.characterIds]);
 
+  const attachedLorebooks = useMemo(() => {
+    return (currentSession.lorebookIds || []).map(id => allLorebooks.find(lb => lb.id === id)).filter(Boolean) as Lorebook[];
+  }, [allLorebooks, currentSession.lorebookIds]);
+
   const avatarSizeClass = useMemo(() => {
     switch (currentSession.uiSettings?.avatarSize) {
       case 'small': return 'w-8 h-8';
@@ -83,8 +90,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   }, [currentSession.uiSettings?.avatarSize]);
 
   useEffect(() => {
-    // When the session prop changes from outside, reset the state.
-    // Also stop any ongoing auto-conversation.
     if (session.id !== currentSessionRef.current.id) {
         setCurrentSession(session);
         if (autoConverseStatusRef.current !== 'stopped') {
@@ -121,11 +126,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [currentSession.messages, isStreaming]);
   
-  // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
       if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);
-      ttsService.cancel(); // Stop any speech on component unmount
+      ttsService.cancel();
     }
   }, []);
 
@@ -155,21 +159,29 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
 
     let finalHistory = history;
-    let finalOverride = override;
+    let finalOverride = override || '';
 
-    // --- Per-Character Plugin Logic ---
+    // --- Lorebook Context Injection ---
+    if (attachedLorebooks.length > 0) {
+        const loreContext = lorebookService.findRelevantLore(history, attachedLorebooks);
+        if (loreContext) {
+            logger.log("Injecting Lorebook context for response.", { character: character.name });
+            const contextInstruction = `[WORLD INFO]:\n${loreContext}`;
+            finalOverride = `${contextInstruction}\n\n${finalOverride}`;
+        }
+    }
+
     if (character.pluginEnabled && character.pluginCode) {
         addSystemMessage(`Executing character logic for ${character.name}...`);
         try {
             const sandbox = new PluginSandbox(handlePluginApiRequest);
             await sandbox.loadCode(character.pluginCode);
             
-            const hookPayload = { history, systemOverride: override };
-            // FIX: The executeHook method only takes one generic type argument.
+            const hookPayload = { history, systemOverride: finalOverride };
             const modifiedPayload = await sandbox.executeHook<{history: Message[], systemOverride?: string}>('beforeResponseGenerate', hookPayload);
             
             finalHistory = modifiedPayload.history;
-            finalOverride = modifiedPayload.systemOverride;
+            finalOverride = modifiedPayload.systemOverride || '';
             
             sandbox.terminate();
             logger.log(`Character logic for "${character.name}" executed successfully.`);
@@ -199,13 +211,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             finalHistory,
             (chunk) => {
                 fullResponse += chunk;
-                // Use a ref here to prevent re-rendering on every chunk, which can be slow.
-                // The final update will trigger the full render. This is an optimization.
                 const messages = currentSessionRef.current.messages;
                 const lastMessage = messages[messages.length - 1];
                 if(lastMessage && lastMessage.timestamp === modelPlaceholder.timestamp) {
                     lastMessage.content = fullResponse;
-                    // We directly update the DOM for performance during streaming
                     const msgElement = document.getElementById(modelPlaceholder.timestamp);
                     if (msgElement) {
                        msgElement.innerHTML = fullResponse.replace(/\n/g, '<br>');
@@ -259,14 +268,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 }
             }
         } else {
-            // If response was empty after cleaning, remove the placeholder
             updateSession(current => ({
                 ...current,
                 messages: current.messages.filter(m => m.timestamp !== modelPlaceholder.timestamp)
             }));
         }
     }
-  }, [participants, isTtsEnabled, updateSession, addSystemMessage, handlePluginApiRequest]);
+  }, [participants, isTtsEnabled, updateSession, addSystemMessage, handlePluginApiRequest, attachedLorebooks]);
 
   const continueAutoConversation = useCallback(async () => {
     if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);
@@ -454,7 +462,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const trimmedInput = input.trim();
     if (!trimmedInput) return;
     
-    // If an AI is talking in a non-auto-conversation, block sending.
     if (isStreaming && autoConverseStatusRef.current === 'stopped') return;
 
     if (autoConverseTimeout.current) clearTimeout(autoConverseTimeout.current);
@@ -480,7 +487,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         nextSpeakerIndex.current += 1;
         
         let finalSystemOverride = systemOverride.current;
-        // RAG integration
         if (respondent.ragEnabled) {
             try {
                 const ragContext = await ragService.findRelevantContext(trimmedInput, respondent);
@@ -517,7 +523,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       
       try {
         const payload = type === 'summary'
-            ? { type: 'summary', value: prompt } // here prompt is the context
+            ? { type: 'summary', value: prompt }
             : { type: 'direct', value: prompt };
             
         const result = await onTriggerHook<{type: string, value: string}, {url?: string, error?: string}>('generateImage', payload);
@@ -587,12 +593,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   const handleImageButtonClick = () => {
-    if (imageClickTimeout.current) { // Double click
+    if (imageClickTimeout.current) {
       clearTimeout(imageClickTimeout.current);
       imageClickTimeout.current = null;
       const context = currentSessionRef.current.messages.slice(-5).map(m => `${m.role}: ${m.content}`).join('\n');
       handleImageGeneration(context, 'summary');
-    } else { // Single click
+    } else {
       imageClickTimeout.current = window.setTimeout(() => {
         const prompt = window.prompt("Enter a prompt for the image:");
         if (prompt) handleImageGeneration(prompt, 'direct');
@@ -602,12 +608,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   const handleNarratorButtonClick = () => {
-    if (narratorClickTimeout.current) { // Double click
+    if (narratorClickTimeout.current) {
       clearTimeout(narratorClickTimeout.current);
       narratorClickTimeout.current = null;
       const context = currentSessionRef.current.messages.slice(-5).map(m => `${m.role}: ${m.content}`).join('\n');
       handleNarration(context, 'summary');
-    } else { // Single click
+    } else {
       narratorClickTimeout.current = window.setTimeout(() => {
         const prompt = window.prompt("Enter a narration instruction (e.g., 'Describe the weather changing'):");
         if (prompt) handleNarration(prompt, 'direct');
@@ -621,10 +627,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         switch(message.attachment.status) {
             case 'loading': return <div className="p-4 text-center">Generating image...</div>;
             case 'done': return <img src={message.attachment.url} alt={message.attachment.prompt || 'Generated Image'} className="rounded-lg max-w-sm" />;
-            case 'error': return null; // Error message is rendered in the main content
+            case 'error': return null;
         }
     }
-    // Using an ID allows us to update the content via JS for performance during streaming
     return <span id={message.timestamp} dangerouslySetInnerHTML={{ __html: message.content.replace(/\n/g, '<br />') }} />;
   };
   
@@ -633,7 +638,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const isInputDisabled = isStreaming && autoConverseStatus === 'stopped';
 
   return (
-    <div className="flex flex-col h-full bg-nexus-gray-light-200 dark:bg-nexus-gray-900">
+    <div className="flex flex-col h-full bg-background-primary">
       {isImageWindowVisible && (
         <ImageGenerationWindow 
             onGenerate={handleGenerateImageInWindow}
@@ -651,21 +656,21 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             }}
         />
       )}
-      <header className="flex items-center p-3 border-b border-nexus-gray-light-300 dark:border-nexus-gray-700">
+      <header className="flex items-center p-3 border-b border-border-neutral">
         <div className="flex -space-x-4">
             {participants.slice(0, 3).map(p => (
-                <img key={p.id} src={p.avatarUrl || `https://picsum.photos/seed/${p.id}/40/40`} alt={p.name} className="w-10 h-10 rounded-full border-2 border-nexus-gray-light-200 dark:border-nexus-gray-900"/>
+                <img key={p.id} src={p.avatarUrl || `https://picsum.photos/seed/${p.id}/40/40`} alt={p.name} className="w-10 h-10 rounded-full border-2 border-background-primary"/>
             ))}
         </div>
         <div className="ml-4 flex-1 min-w-0">
-          <h2 className="text-lg font-bold text-nexus-gray-900 dark:text-white truncate">{session.name}</h2>
-          <p className="text-sm text-nexus-gray-700 dark:text-nexus-gray-400 truncate">{participants.map(p=>p.name).join(', ')}</p>
+          <h2 className="text-lg font-bold text-text-primary truncate">{session.name}</h2>
+          <p className="text-sm text-text-secondary truncate">{participants.map(p=>p.name).join(', ')}</p>
         </div>
       </header>
 
       <div className="flex-1 p-4 overflow-y-auto space-y-4">
         {currentSession.messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-nexus-gray-700 dark:text-nexus-gray-500">
+          <div className="flex flex-col items-center justify-center h-full text-text-secondary">
             <ChatBubbleIcon className="w-16 h-16 mb-4" />
             <p>No messages yet. Start the conversation!</p>
           </div>
@@ -674,9 +679,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             if (msg.role === 'narrator') {
               return (
                 <div key={index} className="text-center my-2 group relative">
-                  <p id={msg.timestamp} className="text-sm text-nexus-gray-700 dark:text-nexus-gray-400 italic px-4">{renderMessageContent(msg)}</p>
+                  <p id={msg.timestamp} className="text-sm text-text-secondary italic px-4">{renderMessageContent(msg)}</p>
                   <div className="absolute top-1/2 -translate-y-1/2 right-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                     <button onClick={() => ttsService.speak(msg.content)} title="Read Aloud" className="p-1 rounded-full text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600">
+                     <button onClick={() => ttsService.speak(msg.content)} title="Read Aloud" className="p-1 rounded-full text-text-secondary hover:bg-background-tertiary">
                         <SpeakerIcon className="w-4 h-4" />
                     </button>
                   </div>
@@ -693,20 +698,20 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 )}
                 <div className={`relative max-w-xl p-3 rounded-lg ${
                     isUser
-                      ? 'bg-nexus-blue-600 text-white'
-                      : 'bg-nexus-gray-light-100 dark:bg-nexus-gray-800 text-nexus-gray-900 dark:text-nexus-gray-200'
+                      ? 'bg-primary-600 text-text-accent'
+                      : 'bg-background-secondary text-text-primary'
                   }`}>
                   <div className="absolute top-0 -translate-y-1/2 flex items-center opacity-0 group-hover:opacity-100 transition-opacity" style={isUser ? {left: '-2rem'} : {right: '-2rem'}}>
-                     <button onClick={() => ttsService.speak(msg.content, characterVoiceURI)} title="Read Aloud" className="p-1 rounded-full text-nexus-gray-600 dark:text-nexus-gray-400 bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600">
+                     <button onClick={() => ttsService.speak(msg.content, characterVoiceURI)} title="Read Aloud" className="p-1 rounded-full text-text-secondary bg-background-tertiary hover:bg-opacity-80">
                         <SpeakerIcon className="w-4 h-4" />
                     </button>
                   </div>
                   {msg.role === 'model' && msgCharacter && <p className="font-bold text-sm mb-1">{msgCharacter.name}</p>}
                   {renderMessageContent(msg)}
                   {msg.signature && (
-                    <div className="absolute -bottom-2 -right-2 bg-nexus-gray-light-200 dark:bg-nexus-gray-800 rounded-full p-0.5">
-                        {verifiedSignatures[msg.timestamp] === true && <CheckCircleIcon className="w-4 h-4 text-green-400" title="Signature Verified" />}
-                        {verifiedSignatures[msg.timestamp] === false && <ExclamationTriangleIcon className="w-4 h-4 text-yellow-400" title="Signature Invalid" />}
+                    <div className="absolute -bottom-2 -right-2 bg-background-primary rounded-full p-0.5">
+                        {verifiedSignatures[msg.timestamp] === true && <CheckCircleIcon className="w-4 h-4 text-accent-green" title="Signature Verified" />}
+                        {verifiedSignatures[msg.timestamp] === false && <ExclamationTriangleIcon className="w-4 h-4 text-accent-yellow" title="Signature Invalid" />}
                     </div>
                   )}
                 </div>
@@ -717,8 +722,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="p-4 border-t border-nexus-gray-light-300 dark:border-nexus-gray-700">
-        <div className="flex items-center bg-nexus-gray-light-100 dark:bg-nexus-gray-800 rounded-lg p-2">
+      <div className="p-4 border-t border-border-neutral">
+        <div className="flex items-center bg-background-secondary rounded-lg p-2">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -728,34 +733,34 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 autoConverseStatus === 'paused' ? "AI conversation paused. (/resume or /end)" :
                 `Message ${session.name}... (/converse)`
             }
-            className="flex-1 bg-transparent resize-none focus:outline-none px-2 text-nexus-gray-900 dark:text-white"
+            className="flex-1 bg-transparent resize-none focus:outline-none px-2 text-text-primary"
             rows={1}
             disabled={isInputDisabled}
           />
           <button 
                 onClick={() => setIsImageWindowVisible(!isImageWindowVisible)} 
                 title="Open Image Generation Window" 
-                className={`p-2 rounded-full transition-colors ${isImageWindowVisible ? 'text-nexus-blue-500' : 'text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-blue-500'}`} disabled={isInputDisabled}
+                className={`p-2 rounded-full transition-colors ${isImageWindowVisible ? 'text-primary-500' : 'text-text-secondary hover:text-primary-500'}`} disabled={isInputDisabled}
             >
                 <PaletteIcon className="w-6 h-6" />
             </button>
             <button 
                 onClick={() => setIsTtsEnabled(!isTtsEnabled)} 
                 title={isTtsEnabled ? "Disable Auto-TTS" : "Enable Auto-TTS for AI Responses"} 
-                className={`p-2 rounded-full transition-colors ${isTtsEnabled ? 'text-nexus-blue-500' : 'text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-blue-500'}`} disabled={isInputDisabled}
+                className={`p-2 rounded-full transition-colors ${isTtsEnabled ? 'text-primary-500' : 'text-text-secondary hover:text-primary-500'}`} disabled={isInputDisabled}
             >
                 <SpeakerIcon className="w-6 h-6" />
             </button>
-          <button onClick={() => setIsMemoryModalVisible(true)} title="Import Memory From Another Chat" className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-blue-500 disabled:opacity-50" disabled={isInputDisabled}>
+          <button onClick={() => setIsMemoryModalVisible(true)} title="Import Memory From Another Chat" className="p-2 text-text-secondary hover:text-primary-500 disabled:opacity-50" disabled={isInputDisabled}>
             <BrainIcon className="w-6 h-6" />
           </button>
-          <button onClick={handleNarratorButtonClick} title="Narrate (Single-click for prompt, double-click for auto)" className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-blue-500 disabled:opacity-50" disabled={isInputDisabled}>
+          <button onClick={handleNarratorButtonClick} title="Narrate (Single-click for prompt, double-click for auto)" className="p-2 text-text-secondary hover:text-primary-500 disabled:opacity-50" disabled={isInputDisabled}>
             <BookIcon className="w-6 h-6" />
           </button>
-          <button onClick={handleImageButtonClick} title="Generate Image (Single-click for prompt, double-click for auto)" className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-blue-500 disabled:opacity-50" disabled={isInputDisabled}>
+          <button onClick={handleImageButtonClick} title="Generate Image (Single-click for prompt, double-click for auto)" className="p-2 text-text-secondary hover:text-primary-500 disabled:opacity-50" disabled={isInputDisabled}>
             <ImageIcon className="w-6 h-6" />
           </button>
-          <button onClick={handleSendMessage} disabled={!input.trim() || isInputDisabled} className="p-2 text-nexus-gray-600 dark:text-nexus-gray-400 hover:text-nexus-blue-500 disabled:opacity-50" title="Send message">
+          <button onClick={handleSendMessage} disabled={!input.trim() || isInputDisabled} className="p-2 text-text-secondary hover:text-primary-500 disabled:opacity-50" title="Send message">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" /></svg>
           </button>
         </div>

@@ -9,32 +9,31 @@ It is designed for interoperability, supporting the import and export of charact
 - **🔒 Secure Local Storage**: All your characters, conversations, and plugins are stored locally in your browser's IndexedDB and encrypted with a master password using the Web Crypto API (PBKDF2 and AES-GCM).
 - **🎨 Per-Chat Customization**: Personalize each conversation with its own unique background and banner images. Upload your own, or use the built-in AI to generate atmospheric images based on your current chat context or the active characters' personas.
 - **Compatibility First**:
-  - **Import Character Cards**: Import character `.json` files compatible with formats like Character Card V2 used by TavernAI, SillyTavern, Chub, etc.
+  - **Import Character Cards & Lorebooks**: Import character `.json` files compatible with formats like Character Card V2, or import `.json` lorebooks from SillyTavern's "World Info" format.
   - **Export Universal Cards**: Export your characters in a compatible V2 format, including a base64-encoded avatar, for use in other applications.
 - **👤 Advanced Character Creation**:
   - Define core identity, physical appearance, personality traits, and tags.
   - Write detailed `Role Instructions` (system prompts) to guide AI behavior.
-  - Build a persistent knowledge base with `Lore`, which can be updated directly from the chat.
   - A `Memory` system that automatically summarizes conversation highlights to ensure continuity.
+- **📚 Dynamic Lorebooks (World Info)**:
+  - Create and manage repositories of world information completely separate from characters.
+  - Each lorebook entry is activated by keywords. When a keyword appears in the chat, the associated lore is dynamically injected into the AI's context.
+  - Attach one or more lorebooks to any chat session, making characters instantly aware of the world's rules, locations, and history.
 - **💬 Dynamic Chat Interface**:
   - **Multi-Character Chat**: Create group chats with two or more AI characters who can interact with you and each other.
   - **AI Self-Conversation**: Use the `/converse` command to have characters talk to each other based on a topic you provide.
   - **Cross-Chat Memory**: Import memories from one chat session into another, allowing characters to recall experiences from different "storylines".
-  - Special commands like `/lore` to dynamically update your character's knowledge base.
-  - Integrated image and scene narration generation.
 - **🔌 Extensible Plugin System**:
-  - Write custom JavaScript plugins to modify application behavior (e.g., intercept and change messages).
-  - Plugins run in a secure, sandboxed Web Worker environment.
+  - Write custom JavaScript plugins to modify application behavior.
   - Configure the default Image Generation plugin with preset styles, negative prompts, and custom API endpoints.
 - **🌐 Multi-API Support**:
   - Default support for Google Gemini.
-  - Per-character or per-plugin configuration to use custom Gemini API keys.
-  - Support for any OpenAI-compatible API, including local models like Ollama or LM Studio.
+  - Per-character or per-plugin configuration for custom API keys or any OpenAI-compatible API (e.g., Ollama, LM Studio).
 - **💾 Granular Data Management**:
   - **Archiving**: "Delete" characters and chats to archive them instead of permanently removing them. View and restore them from the archive at any time.
-  - **Full Backup**: Export and import your entire application data (characters, chats, plugins) in a single JSON file.
-  - **Individual Export**: Export single characters or chat histories.
-  - **Smart Import**: The app automatically detects whether you are importing a full backup, a character card, or a chat session.
+  - **Full Backup**: Export and import your entire application data in a single JSON file.
+  - **Individual Export**: Export single characters, chat histories, or lorebooks.
+  - **Smart Import**: The app automatically detects whether you are importing a full backup, a character card, a lorebook, or a chat session.
 
 ---
 
@@ -84,8 +83,8 @@ A: This master password is used to encrypt all your data (characters, chats, etc
 **Q: I forgot my master password. Can I recover it?**
 A: No. Due to the local, zero-knowledge encryption model, there is no password recovery. The only way to regain access is to clear your browser's site data for the application, which will delete all your encrypted data permanently.
 
-**Q: How do I import a character from another program?**
-A: Use the "Import" button in the bottom-left sidebar. Select the character's `.json` file. AI Nexus will automatically detect it's a character card and add it to your character list without overwriting your other data.
+**Q: How do I import a character or a lorebook?**
+A: Use the "Import" button in the bottom-left sidebar. Select the `.json` file. AI Nexus will automatically detect if it's a character card, a SillyTavern World Info file (lorebook), a chat session, or a full backup, and handle it accordingly.
 
 **Q: How do I use a local AI model like Ollama?**
 A: You can connect to local models that expose an OpenAI-compatible API.

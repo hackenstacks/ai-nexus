@@ -1,11 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { UISettings, ChatSession, Character } from '../types';
 import { generateContent } from '../services/geminiService';
 import { logger } from '../services/loggingService';
-import { SpinnerIcon } from './icons/SpinnerIcon';
-import { UploadIcon } from './icons/UploadIcon';
-import { SparklesIcon } from './icons/SparklesIcon';
-import { TrashIcon } from './icons/TrashIcon';
+import { SpinnerIcon } from './icons/SpinnerIcon.tsx';
+import { UploadIcon } from './icons/UploadIcon.tsx';
+import { SparklesIcon } from './icons/SparklesIcon.tsx';
+import { TrashIcon } from './icons/TrashIcon.tsx';
+import * as themeService from '../services/themeService.ts';
 
 interface AppearanceModalProps {
   settings: UISettings;
@@ -41,25 +42,25 @@ const ImageControl: React.FC<{
 
   return (
     <div className="space-y-3">
-      <h3 className="text-lg font-medium text-nexus-gray-900 dark:text-white">{label}</h3>
-      <div className="h-40 w-full rounded-md border-2 border-dashed border-nexus-gray-light-400 dark:border-nexus-gray-600 flex items-center justify-center bg-cover bg-center" style={{ backgroundImage: `url(${imageUrl || ''})`, backgroundColor: imageUrl ? '' : 'rgba(0,0,0,0.1)' }}>
-        {!imageUrl && <span className="text-nexus-gray-600 dark:text-nexus-gray-400">No Image Set</span>}
+      <h3 className="text-lg font-medium text-text-primary">{label}</h3>
+      <div className="h-40 w-full rounded-md border-2 border-dashed border-border-strong flex items-center justify-center bg-cover bg-center" style={{ backgroundImage: `url(${imageUrl || ''})`, backgroundColor: imageUrl ? '' : 'rgba(0,0,0,0.1)' }}>
+        {!imageUrl && <span className="text-text-secondary">No Image Set</span>}
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
         <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/png, image/jpeg, image/webp, image/gif" className="hidden" />
-        <button onClick={() => fileInputRef.current?.click()} className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors">
+        <button onClick={() => fileInputRef.current?.click()} className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-background-tertiary hover:bg-opacity-80 transition-colors">
             <UploadIcon className="w-4 h-4" /> <span>Upload</span>
         </button>
-        <button onClick={() => onGenerate('prompt')} disabled={isGenerating} className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors disabled:opacity-50">
+        <button onClick={() => onGenerate('prompt')} disabled={isGenerating} className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-background-tertiary hover:bg-opacity-80 transition-colors disabled:opacity-50">
             {isGenerating ? <SpinnerIcon className="w-4 h-4 animate-spin"/> : <SparklesIcon className="w-4 h-4" />} <span>From Prompt</span>
         </button>
-        <button onClick={() => onGenerate('auto')} disabled={isGenerating || !canAutoGenerate} className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors disabled:opacity-50" title={!canAutoGenerate ? "Not enough chat history available" : "Generate from chat context"}>
+        <button onClick={() => onGenerate('auto')} disabled={isGenerating || !canAutoGenerate} className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-background-tertiary hover:bg-opacity-80 transition-colors disabled:opacity-50" title={!canAutoGenerate ? "Not enough chat history available" : "Generate from chat context"}>
             {isGenerating ? <SpinnerIcon className="w-4 h-4 animate-spin"/> : <SparklesIcon className="w-4 h-4" />} <span>From Chat</span>
         </button>
-        <button onClick={() => onGenerate('character')} disabled={isGenerating || !canCharacterGenerate} className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-nexus-gray-light-300 dark:bg-nexus-gray-700 hover:bg-nexus-gray-light-400 dark:hover:bg-nexus-gray-600 transition-colors disabled:opacity-50" title={!canCharacterGenerate ? "No characters in this chat" : "Generate from character details"}>
+        <button onClick={() => onGenerate('character')} disabled={isGenerating || !canCharacterGenerate} className="flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-background-tertiary hover:bg-opacity-80 transition-colors disabled:opacity-50" title={!canCharacterGenerate ? "No characters in this chat" : "Generate from character details"}>
             {isGenerating ? <SpinnerIcon className="w-4 h-4 animate-spin"/> : <SparklesIcon className="w-4 h-4" />} <span>From Character</span>
         </button>
-        <button onClick={onClear} className="col-span-2 md:col-span-1 flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-red-500/20 text-red-700 dark:text-red-400 hover:bg-red-500/30 transition-colors">
+        <button onClick={onClear} className="col-span-2 md:col-span-1 flex items-center justify-center space-x-2 px-3 py-2 text-sm font-medium text-center rounded-md bg-accent-red/20 text-accent-red hover:bg-accent-red/30 transition-colors">
             <TrashIcon className="w-4 h-4" /> <span>Clear</span>
         </button>
       </div>
@@ -70,6 +71,14 @@ const ImageControl: React.FC<{
 export const AppearanceModal: React.FC<AppearanceModalProps> = ({ settings, currentChat, allCharacters, onUpdate, onGenerateImage, onClose }) => {
   const [isGeneratingBg, setIsGeneratingBg] = useState(false);
   const [isGeneratingBanner, setIsGeneratingBanner] = useState(false);
+  const [activeTheme, setActiveTheme] = useState(themeService.getTheme());
+
+  useEffect(() => {
+    const unsubscribe = themeService.subscribe(() => {
+      setActiveTheme(themeService.getTheme());
+    });
+    return unsubscribe;
+  }, []);
 
   const participants = useMemo(() => {
     if (!currentChat) return [];
@@ -154,13 +163,27 @@ export const AppearanceModal: React.FC<AppearanceModalProps> = ({ settings, curr
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 z-40 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-nexus-gray-light-100 dark:bg-nexus-gray-800 rounded-lg shadow-xl w-full max-w-2xl flex flex-col" onClick={e => e.stopPropagation()}>
-        <header className="p-4 border-b border-nexus-gray-light-300 dark:border-nexus-gray-700 flex justify-between items-center flex-shrink-0">
-          <h2 className="text-xl font-bold text-nexus-gray-900 dark:text-white">Appearance Settings</h2>
-          <button onClick={onClose} className="text-nexus-gray-700 dark:text-nexus-gray-400 hover:text-nexus-gray-900 dark:hover:text-white transition-colors text-2xl font-bold leading-none p-1">&times;</button>
+      <div className="bg-background-secondary rounded-lg shadow-xl w-full max-w-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+        <header className="p-4 border-b border-border-neutral flex justify-between items-center flex-shrink-0">
+          <h2 className="text-xl font-bold text-text-primary">Appearance Settings</h2>
+          <button onClick={onClose} className="text-text-secondary hover:text-text-primary transition-colors text-2xl font-bold leading-none p-1">&times;</button>
         </header>
         
         <div className="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
+          <div className="space-y-3">
+            <h3 className="text-lg font-medium text-text-primary">Theme</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {themeService.themes.map(theme => (
+                <div key={theme.id} onClick={() => themeService.setTheme(theme.id)} className="cursor-pointer">
+                  <div className={`h-16 w-full rounded-md border-2 flex items-end p-2 theme-preview theme-${theme.id} ${activeTheme === theme.id ? 'border-primary-500' : 'border-border-neutral'}`}>
+                    <div className="w-4 h-4 rounded-full bg-primary-500"></div>
+                  </div>
+                  <p className={`text-center mt-2 text-sm ${activeTheme === theme.id ? 'text-primary-500 font-bold' : 'text-text-primary'}`}>{theme.name}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <ImageControl 
             label="Background Image"
             imageUrl={settings.backgroundImage}
@@ -182,9 +205,9 @@ export const AppearanceModal: React.FC<AppearanceModalProps> = ({ settings, curr
             canCharacterGenerate={canCharacterGenerate}
           />
 
-          <div className="space-y-3 pt-6 border-t border-nexus-gray-light-300 dark:border-nexus-gray-700">
-            <h3 className="text-lg font-medium text-nexus-gray-900 dark:text-white">Avatar Size</h3>
-            <p className="text-sm text-nexus-gray-700 dark:text-nexus-gray-400">Controls the size of character avatars displayed next to messages in this chat.</p>
+          <div className="space-y-3 pt-6 border-t border-border-neutral">
+            <h3 className="text-lg font-medium text-text-primary">Avatar Size</h3>
+            <p className="text-sm text-text-secondary">Controls the size of character avatars displayed next to messages in this chat.</p>
             <div className="flex items-center space-x-4">
                 {(['small', 'medium', 'large'] as const).map(size => (
                     <label key={size} className="flex items-center space-x-2 cursor-pointer">
@@ -194,9 +217,9 @@ export const AppearanceModal: React.FC<AppearanceModalProps> = ({ settings, curr
                             value={size}
                             checked={(settings.avatarSize || 'medium') === size}
                             onChange={() => handleAvatarSizeChange(size)}
-                            className="h-4 w-4 text-nexus-blue-600 border-nexus-gray-500 dark:border-nexus-gray-600 bg-nexus-gray-light-100 dark:bg-nexus-gray-900 focus:ring-nexus-blue-500"
+                            className="h-4 w-4 text-primary-600 border-border-strong bg-background-primary focus:ring-primary-500"
                         />
-                        <span className="capitalize text-nexus-gray-800 dark:text-nexus-gray-300">{size}</span>
+                        <span className="capitalize text-text-primary">{size}</span>
                     </label>
                 ))}
             </div>
@@ -204,8 +227,8 @@ export const AppearanceModal: React.FC<AppearanceModalProps> = ({ settings, curr
 
         </div>
 
-        <footer className="p-4 border-t border-nexus-gray-light-300 dark:border-nexus-gray-700 flex justify-end">
-            <button onClick={onClose} className="py-2 px-4 rounded-md text-nexus-gray-900 dark:text-white bg-nexus-gray-light-400 dark:bg-nexus-gray-600 hover:bg-nexus-gray-light-500 dark:hover:bg-nexus-gray-500">Close</button>
+        <footer className="p-4 border-t border-border-neutral flex justify-end">
+            <button onClick={onClose} className="py-2 px-4 rounded-md text-text-primary bg-background-tertiary hover:bg-opacity-80">Close</button>
         </footer>
       </div>
     </div>

@@ -1,10 +1,8 @@
-
-
 // FIX: `GenerateContentStreamResponse` is not an exported member of `@google/genai`.
 // The correct type for a stream response is an async iterable of `GenerateContentResponse`.
 import { GoogleGenAI, GenerateContentResponse, GenerateImagesResponse } from "@google/genai";
-import { Character, Message, ApiConfig } from "../types";
-import { logger } from "./loggingService";
+import { Character, Message, ApiConfig } from "../types.ts";
+import { logger } from "./loggingService.ts";
 
 // --- Rate Limiting ---
 const lastRequestTimestamps = new Map<string, number>();

@@ -1,32 +1,34 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Character, ChatSession, AppData, Plugin, GeminiApiRequest, Message, CryptoKeys, RagSource, ConfirmationRequest, UISettings } from '../types';
-import { loadData, saveData } from '../services/secureStorage';
-import * as ragService from '../services/ragService';
-import { CharacterList } from './CharacterList';
-import { ChatList } from './ChatList';
-import { CharacterForm } from './CharacterForm';
-import { ChatInterface } from './ChatInterface';
-import { PluginManager } from './PluginManager';
-import { LogViewer } from './LogViewer';
-import { HelpModal } from './HelpModal';
-import { ChatSelectionModal } from './ChatSelectionModal';
-import { ConfirmationModal } from './ConfirmationModal';
-import { ThemeSwitcher } from './ThemeSwitcher';
-import { AppearanceModal } from './AppearanceModal';
-import { PluginSandbox } from '../services/pluginSandbox';
-import * as geminiService from '../services/geminiService';
-import * as compatibilityService from '../services/compatibilityService';
-import * as cryptoService from '../services/cryptoService';
-import { logger } from '../services/loggingService';
-import { DownloadIcon } from './icons/DownloadIcon';
-import { UploadIcon } from './icons/UploadIcon';
-import { CodeIcon } from './icons/CodeIcon';
-import { TerminalIcon } from './icons/TerminalIcon';
-import { HelpIcon } from './icons/HelpIcon';
-import { PlusIcon } from './icons/PlusIcon';
-import { ChatBubbleIcon } from './icons/ChatBubbleIcon';
-import { UsersIcon } from './icons/UsersIcon';
-import { PaletteIcon } from './icons/PaletteIcon';
+import { Character, ChatSession, AppData, Plugin, GeminiApiRequest, Message, CryptoKeys, RagSource, ConfirmationRequest, UISettings, Lorebook } from '../types.ts';
+import { loadData, saveData } from '../services/secureStorage.ts';
+import * as ragService from '../services/ragService.ts';
+import { CharacterList } from './CharacterList.tsx';
+import { ChatList } from './ChatList.tsx';
+import { CharacterForm } from './CharacterForm.tsx';
+import { ChatInterface } from './ChatInterface.tsx';
+import { PluginManager } from './PluginManager.tsx';
+import { LogViewer } from './LogViewer.tsx';
+import { HelpModal } from './HelpModal.tsx';
+import { LorebookManager } from './LorebookManager.tsx';
+import { ChatSelectionModal } from './ChatSelectionModal.tsx';
+import { ConfirmationModal } from './ConfirmationModal.tsx';
+import { ThemeSwitcher } from './ThemeSwitcher.tsx';
+import { AppearanceModal } from './AppearanceModal.tsx';
+import { PluginSandbox } from '../services/pluginSandbox.ts';
+import * as geminiService from '../services/geminiService.ts';
+import * as compatibilityService from '../services/compatibilityService.ts';
+import * as cryptoService from '../services/cryptoService.ts';
+import { logger } from '../services/loggingService.ts';
+import { DownloadIcon } from './icons/DownloadIcon.tsx';
+import { UploadIcon } from './icons/UploadIcon.tsx';
+import { CodeIcon } from './icons/CodeIcon.tsx';
+import { TerminalIcon } from './icons/TerminalIcon.tsx';
+import { HelpIcon } from './icons/HelpIcon.tsx';
+import { PlusIcon } from './icons/PlusIcon.tsx';
+import { ChatBubbleIcon } from './icons/ChatBubbleIcon.tsx';
+import { UsersIcon } from './icons/UsersIcon.tsx';
+import { PaletteIcon } from './icons/PaletteIcon.tsx';
+import { GlobeIcon } from './icons/GlobeIcon.tsx';
 
 
 const defaultImagePlugin: Plugin = {
@@ -90,24 +92,24 @@ nexus.log('TTS Plugin loaded (Core Feature).');
 };
 
 
-type View = 'chat' | 'form' | 'plugins';
-type ActivePanel = 'chats' | 'characters' | 'none';
-type ActiveView = 'chats' | 'characters' | 'plugins';
+type ActivePanel = 'chats' | 'characters' | 'lorebooks' | 'none';
+type ActiveView = 'chat' | 'character-form' | 'plugins' | 'lorebooks';
 
 export const MainLayout: React.FC = () => {
-    const [appData, setAppData] = useState<AppData>({ characters: [], chatSessions: [], plugins: [] });
+    const [appData, setAppData] = useState<AppData>({ characters: [], chatSessions: [], plugins: [], lorebooks: [] });
     
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
     const [editingCharacter, setEditingCharacter] = useState<Character | null>(null);
-    const [view, setView] = useState<View>('chat');
-    const [activeView, setActiveView] = useState<ActiveView>('chats');
+    
+    const [activeView, setActiveView] = useState<ActiveView>('chat');
+    const [activePanel, setActivePanel] = useState<ActivePanel>('chats');
 
     const [isLogViewerVisible, setIsLogViewerVisible] = useState(false);
     const [isHelpVisible, setIsHelpVisible] = useState(false);
     const [isChatModalVisible, setIsChatModalVisible] = useState(false);
     const [isAppearanceModalVisible, setIsAppearanceModalVisible] = useState(false);
     const [confirmationRequest, setConfirmationRequest] = useState<ConfirmationRequest | null>(null);
-    const [activePanel, setActivePanel] = useState<ActivePanel>('chats');
+
     const [showArchivedChats, setShowArchivedChats] = useState(false);
     const [showArchivedCharacters, setShowArchivedCharacters] = useState(false);
 
@@ -204,15 +206,13 @@ export const MainLayout: React.FC = () => {
             setAppData(data);
             if (data.chatSessions.length > 0) {
                 setSelectedChatId(data.chatSessions.find(cs => !cs.isArchived)?.id || data.chatSessions[0].id);
-                setActiveView('chats');
+                setActiveView('chat');
             } else {
-                // If there are no chats but there are characters, open the character panel
                 if (data.characters.length > 0) {
                     setActivePanel('characters');
-                    setActiveView('characters');
                 }
             }
-            logger.log("Application data loaded successfully.", { characters: data.characters.length, sessions: data.chatSessions.length, plugins: data.plugins.length });
+            logger.log("Application data loaded successfully.", { characters: data.characters.length, sessions: data.chatSessions.length, plugins: data.plugins.length, lorebooks: data.lorebooks?.length || 0 });
         };
         loadInitialData();
 
@@ -255,7 +255,6 @@ export const MainLayout: React.FC = () => {
         const isNew = !appData.characters.some(c => c.id === character.id);
         let updatedCharacter = { ...character };
 
-        // Generate signing keys for a new character or one that's missing them
         if (isNew || !updatedCharacter.keys) {
             logger.log(`Generating signing keys for character: ${updatedCharacter.name}`);
             const keyPair = await cryptoService.generateSigningKeyPair();
@@ -265,13 +264,12 @@ export const MainLayout: React.FC = () => {
             };
         }
         
-        // Sign the character data with the user's master key
         if (appData.userKeys) {
             logger.log("Signing character data with user's master key...");
             const userPrivateKey = await cryptoService.importKey(appData.userKeys.privateKey, 'sign');
             
             const dataToSign: Partial<Character> = { ...updatedCharacter };
-            delete dataToSign.signature; // Exclude the signature itself
+            delete dataToSign.signature; 
             
             const canonicalString = cryptoService.createCanonicalString(dataToSign);
             updatedCharacter.signature = await cryptoService.sign(canonicalString, userPrivateKey);
@@ -285,16 +283,14 @@ export const MainLayout: React.FC = () => {
         
         const updatedData = { ...appData, characters: updatedCharacters };
         setAppData(updatedData);
-        await persistData(updatedData); // Use await here
+        await persistData(updatedData);
         logger.log(`Character ${isNew ? 'created' : 'updated'}: ${updatedCharacter.name}`);
         
-        // If we were editing, update the state for the form to reflect the saved data
         if (editingCharacter && editingCharacter.id === updatedCharacter.id) {
             setEditingCharacter(updatedCharacter);
         }
         
-        setView('chat');
-        setActiveView('chats');
+        setActiveView('chat');
         if (isNew) {
            setEditingCharacter(null);
         }
@@ -402,20 +398,34 @@ export const MainLayout: React.FC = () => {
         });
     };
 
-    const handleCreateChat = (name: string, characterIds: string[]) => {
+    const handleCreateChat = (name: string, characterIds: string[], lorebookIds: string[]) => {
+        const messages: Message[] = [];
+        if (characterIds.length === 1) {
+            const character = appData.characters.find(c => c.id === characterIds[0]);
+            if (character && character.firstMessage) {
+                messages.push({
+                    role: 'model',
+                    content: character.firstMessage.replace(/{{user}}/g, 'You'),
+                    timestamp: new Date().toISOString(),
+                    characterId: character.id
+                });
+            }
+        }
+
         const newSession: ChatSession = {
             id: crypto.randomUUID(),
             name,
             characterIds,
-            messages: [],
-            uiSettings: {}
+            messages,
+            uiSettings: {},
+            lorebookIds,
         };
         const updatedSessions = [...appData.chatSessions, newSession];
         const updatedData = { ...appData, chatSessions: updatedSessions };
         setAppData(updatedData);
         persistData(updatedData);
         setSelectedChatId(newSession.id);
-        setActiveView('chats');
+        setActiveView('chat');
         setIsChatModalVisible(false);
         logger.log(`New chat created: "${name}"`);
         setActivePanel('none');
@@ -473,22 +483,19 @@ export const MainLayout: React.FC = () => {
     
     const handleEditCharacter = (character: Character) => {
         setEditingCharacter(character);
-        setView('form');
-        setActiveView('characters');
+        setActiveView('character-form');
         setActivePanel('none');
     };
     
     const handleAddNewCharacter = () => {
         setEditingCharacter(null);
-        setView('form');
-        setActiveView('characters');
+        setActiveView('character-form');
         setActivePanel('none');
     };
 
     const handleSelectChat = (sessionId: string) => {
         setSelectedChatId(sessionId);
-        setView('chat');
-        setActiveView('chats');
+        setActiveView('chat');
         setEditingCharacter(null);
         setActivePanel('none');
     };
@@ -562,161 +569,106 @@ export const MainLayout: React.FC = () => {
     
     const handleImportData = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
-        if (!file) {
-            logger.warn("Import handler was called but no file was selected.");
-            return;
-        }
+        if (!file) return;
 
         logger.log(`Starting data import from file: ${file.name}`);
         const reader = new FileReader();
 
         reader.onerror = (error) => {
             logger.error("FileReader failed to read the file.", error);
-            alert("An error occurred while trying to read the file. Please check the browser console for details.");
+            alert("An error occurred while trying to read the file.");
         };
         
         reader.onload = async (e) => {
             logger.log("File has been loaded into memory. Processing content...");
             try {
                 const text = e.target?.result as string;
-                if (!text) {
-                    throw new Error("File content is empty.");
-                }
+                if (!text) throw new Error("File content is empty.");
                 const data = JSON.parse(text);
 
-                // Helper to validate the core structure of AppData, now with deeper checks.
-                const isValidAppData = (d: any): d is AppData => {
-                    if (typeof d !== 'object' || d === null) {
-                        logger.debug("Import validation failed: data is not a non-null object.");
-                        return false;
-                    }
-                    
-                    // Check characters array and its contents
-                    if (!Array.isArray(d.characters)) {
-                        logger.debug("Import validation failed: 'characters' is not an array.");
-                        return false;
-                    }
-                    if (d.characters.some((c: any) => typeof c !== 'object' || c === null)) {
-                        logger.debug("Import validation failed: 'characters' array contains non-object or null entries.");
-                        return false;
-                    }
-
-                    // Check chatSessions array and its contents
-                    if (!Array.isArray(d.chatSessions)) {
-                        logger.debug("Import validation failed: 'chatSessions' is not an array.");
-                        return false;
-                    }
-                    if (d.chatSessions.some((s: any) => typeof s !== 'object' || s === null)) {
-                        logger.debug("Import validation failed: 'chatSessions' array contains non-object or null entries.");
-                        return false;
-                    }
-                    
-                    // Check plugins array if it exists
-                    if (d.plugins !== undefined) {
-                        if (!Array.isArray(d.plugins)) {
-                            logger.debug("Import validation failed: 'plugins' exists but is not an array.");
-                            return false;
-                        }
-                        if (d.plugins.some((p: any) => typeof p !== 'object' || p === null)) {
-                            logger.debug("Import validation failed: 'plugins' array contains non-object or null entries.");
-                            return false;
-                        }
-                    }
-
-                    return true;
-                };
-
-
+                const isValidAppData = (d: any): d is AppData => (
+                    typeof d === 'object' && d !== null &&
+                    Array.isArray(d.characters) &&
+                    Array.isArray(d.chatSessions)
+                );
+                
                 // --- Type Identification Logic ---
 
                 // 1. AI Nexus Backup (v1.0+)
                 if (data.spec === 'ai_nexus_backup' && isValidAppData(data.data)) {
                     logger.log("Detected valid AI Nexus full backup format.");
                     setConfirmationRequest({
-                        message: 'This is a full backup file. Importing it will overwrite all of your current characters, chats, and settings. Are you sure you want to continue?',
+                        message: 'This is a full backup file. Importing it will overwrite all current data. Are you sure?',
                         onConfirm: async () => {
-                            try {
-                                await persistData(data.data);
-                                logger.log("Full backup imported successfully! Reloading application...");
-                                alert('Backup restored successfully! The application will now reload.');
-                                setConfirmationRequest(null);
-                                window.location.reload();
-                            } catch (err) {
-                                logger.error("Failed to save imported backup data.", err);
-                                alert("Could not save the imported backup data. The database might be full or corrupted.");
-                                setConfirmationRequest(null);
-                            }
-                        },
-                        onCancel: () => {
-                            logger.log("Backup import cancelled by user.");
+                            await persistData(data.data);
+                            alert('Backup restored successfully! The application will now reload.');
                             setConfirmationRequest(null);
-                        }
+                            window.location.reload();
+                        },
+                        onCancel: () => setConfirmationRequest(null)
                     });
                     return;
                 }
 
-                // 2. Character Card (V2 compatible or Nexus-exported)
-                const importedChar = compatibilityService.v2ToNexus(data);
-                if (importedChar) {
-                    logger.log("Detected Character Card format.");
-                    if (importedChar.signature && importedChar.userPublicKeyJwk) {
-                        (async () => {
-                            try {
-                                const userPublicKey = await cryptoService.importKey(importedChar.userPublicKeyJwk, 'verify');
-                                const dataToVerify: Partial<Character> = { ...importedChar };
-                                delete dataToVerify.signature;
-                                const canonicalString = cryptoService.createCanonicalString(dataToVerify);
-                                const isValid = await cryptoService.verify(canonicalString, importedChar.signature, userPublicKey);
-                                if (!isValid) {
-                                    logger.warn(`Signature for imported character "${importedChar.name}" is INVALID.`);
-                                    alert(`Warning: The signature for the imported character "${importedChar.name}" is invalid. The data may have been tampered with.`);
-                                } else {
-                                    logger.log(`Signature for imported character "${importedChar.name}" is VALID.`);
-                                }
-                            } catch (err) {
-                                 logger.error(`Error verifying signature for imported character "${importedChar.name}".`, err);
-                            }
-                        })();
-                    }
-                    
-                    const updatedData = { ...appData, characters: [...appData.characters, importedChar] };
+                // 2. SillyTavern World Info (Lorebook)
+                const importedLorebook = compatibilityService.sillyTavernWorldInfoToNexus(data, file.name);
+                if (importedLorebook) {
+                    const newLorebook: Lorebook = {
+                        ...importedLorebook,
+                        id: crypto.randomUUID(),
+                    };
+                    const updatedData = { ...appData, lorebooks: [...(appData.lorebooks || []), newLorebook] };
                     setAppData(updatedData);
                     await persistData(updatedData);
-                    logger.log(`Imported character: ${importedChar.name}`);
-                    alert(`Character "${importedChar.name}" imported successfully. Edit and save the character to generate new signing keys if it's from an external source.`);
+                    logger.log(`Imported Lorebook: ${newLorebook.name}`);
+                    alert(`Lorebook "${newLorebook.name}" imported successfully.`);
+                    return;
+                }
+
+                // 3. Character Card (V2 compatible or Nexus-exported)
+                const importResult = compatibilityService.v2ToNexus(data);
+                if (importResult) {
+                    logger.log("Detected Character Card format.");
+                    const { character, lorebook } = importResult;
+                    
+                    let updatedCharacters = [...appData.characters, character];
+                    let updatedLorebooks = appData.lorebooks || [];
+                    let alertMessage = `Character "${character.name}" imported successfully.`;
+
+                    if (lorebook) {
+                        updatedLorebooks = [...updatedLorebooks, lorebook];
+                        alertMessage += ` A new Lorebook "${lorebook.name}" was also created.`;
+                    }
+
+                    const updatedData = { ...appData, characters: updatedCharacters, lorebooks: updatedLorebooks };
+                    setAppData(updatedData);
+                    await persistData(updatedData);
+
+                    logger.log(`Imported character: ${character.name}${lorebook ? ' with auto-generated lorebook' : ''}`);
+                    alert(alertMessage);
                     return;
                 }
                 
-                // 3. Legacy Backup (checked after specific formats)
+                // 4. Legacy Backup (checked after specific formats)
                 if (isValidAppData(data)) {
                     logger.log("Detected legacy backup format.");
                     setConfirmationRequest({
                         message: 'This appears to be a full backup. Importing it will overwrite all current data. Are you sure?',
                         onConfirm: async () => {
-                             try {
-                                await persistData(data); // Legacy format is the raw AppData
-                                logger.log("Legacy backup imported successfully! Reloading application...");
-                                alert('Backup restored successfully! The application will now reload.');
-                                setConfirmationRequest(null);
-                                window.location.reload();
-                             } catch (err) {
-                                logger.error("Failed to save imported backup data.", err);
-                                alert("Could not save the imported backup data. The database might be full or corrupted.");
-                                setConfirmationRequest(null);
-                            }
+                             await persistData(data);
+                             alert('Backup restored successfully! The application will now reload.');
+                             setConfirmationRequest(null);
+                             window.location.reload();
                         },
-                        onCancel: () => {
-                            logger.log("Backup import cancelled by user.");
-                            setConfirmationRequest(null);
-                        }
+                        onCancel: () => setConfirmationRequest(null)
                     });
                     return;
                 }
 
-                // 4. Chat Session
+                // 5. Chat Session
                 if (data.id && Array.isArray(data.messages) && Array.isArray(data.characterIds)) {
                     logger.log("Detected Chat Session format.");
-                    const newSession: ChatSession = { ...data, id: crypto.randomUUID() }; // new ID to prevent collision
+                    const newSession: ChatSession = { ...data, id: crypto.randomUUID() };
                     const updatedData = { ...appData, chatSessions: [...appData.chatSessions, newSession] };
                     setAppData(updatedData);
                     await persistData(updatedData);
@@ -725,12 +677,11 @@ export const MainLayout: React.FC = () => {
                     return;
                 }
                 
-                // 5. Fallback
-                throw new Error("Unrecognized file format. The file is not a valid character card, chat session, or full backup.");
+                throw new Error("Unrecognized file format. Not a valid character, lorebook, chat, or backup file.");
 
             } catch (error) {
                 logger.error("Import failed during processing:", error);
-                alert(`Failed to import data. Please check the file format and logs. Error: ${error instanceof Error ? error.message : String(error)}`);
+                alert(`Failed to import data. Error: ${error instanceof Error ? error.message : String(error)}`);
             } finally {
                 if (fileInputRef.current) {
                     fileInputRef.current.value = '';
@@ -743,6 +694,12 @@ export const MainLayout: React.FC = () => {
 
     const handlePluginsUpdate = (updatedPlugins: Plugin[]) => {
         const updatedData = { ...appData, plugins: updatedPlugins };
+        setAppData(updatedData);
+        persistData(updatedData);
+    };
+    
+    const handleLorebooksUpdate = (updatedLorebooks: Lorebook[]) => {
+        const updatedData = { ...appData, lorebooks: updatedLorebooks };
         setAppData(updatedData);
         persistData(updatedData);
     };
@@ -800,7 +757,6 @@ export const MainLayout: React.FC = () => {
         let processedData: any = data;
         const enabledPlugins = appData.plugins?.filter(p => p.enabled) || [];
 
-        // Special handling for image generation to inject its settings
         if (hookName === 'generateImage') {
             const imagePlugin = appData.plugins?.find(p => p.id === 'default-image-generator');
             processedData = { ...processedData, settings: imagePlugin?.settings || {} };
@@ -831,21 +787,10 @@ export const MainLayout: React.FC = () => {
             return imageUrl;
         } catch (error) {
             logger.error("Failed to generate image:", error);
-            alert(`Image generation failed. Please check plugin settings and logs. Details: ${error instanceof Error ? error.message : String(error)}`);
+            alert(`Image generation failed. Details: ${error instanceof Error ? error.message : String(error)}`);
             return null;
         }
     }, [appData.plugins]);
-
-    const handleViewPlugins = () => {
-        setView('plugins');
-        setActiveView('plugins');
-        setActivePanel('none');
-    };
-    
-    const handleCancelForm = () => {
-        setView('chat');
-        setActiveView('chats');
-    }
 
     const handleUiSettingsUpdate = useCallback(async (newSettings: UISettings) => {
         if (!selectedChatId) return;
@@ -864,12 +809,12 @@ export const MainLayout: React.FC = () => {
     const selectedChat = appData.chatSessions.find(s => s.id === selectedChatId);
 
     const renderMainContent = () => {
-        switch (view) {
-            case 'form':
+        switch (activeView) {
+            case 'character-form':
                 return <CharacterForm 
                     character={editingCharacter} 
                     onSave={handleSaveCharacter} 
-                    onCancel={handleCancelForm}
+                    onCancel={() => setActiveView('chat')}
                     onDeleteRagSource={handleDeleteRagSource}
                     onGenerateImage={handleGenerateImage}
                 />;
@@ -877,6 +822,12 @@ export const MainLayout: React.FC = () => {
                 return <PluginManager
                     plugins={appData.plugins || []}
                     onPluginsUpdate={handlePluginsUpdate}
+                    onSetConfirmation={setConfirmationRequest}
+                />;
+            case 'lorebooks':
+                return <LorebookManager
+                    lorebooks={appData.lorebooks || []}
+                    onLorebooksUpdate={handleLorebooksUpdate}
                     onSetConfirmation={setConfirmationRequest}
                 />;
             case 'chat':
@@ -887,6 +838,7 @@ export const MainLayout: React.FC = () => {
                         session={selectedChat}
                         allCharacters={appData.characters}
                         allChatSessions={appData.chatSessions}
+                        allLorebooks={appData.lorebooks || []}
                         userKeys={appData.userKeys}
                         onSessionUpdate={handleSessionUpdate}
                         onTriggerHook={triggerPluginHook}
@@ -896,8 +848,8 @@ export const MainLayout: React.FC = () => {
                         handlePluginApiRequest={handlePluginApiRequest}
                     />
                 ) : (
-                    <div className="flex-1 flex items-center justify-center h-full bg-nexus-gray-light-200 dark:bg-nexus-gray-900">
-                        <div className="text-center text-nexus-gray-700 dark:text-nexus-gray-500">
+                    <div className="flex-1 flex items-center justify-center h-full bg-background-secondary">
+                        <div className="text-center text-text-secondary">
                             <h2 className="text-2xl">Welcome to AI Nexus</h2>
                             <p>Select a chat or create a new one to begin.</p>
                         </div>
@@ -912,8 +864,8 @@ export const MainLayout: React.FC = () => {
                 return (
                     <>
                         <div className="flex justify-between items-center mb-2">
-                            <h2 className="text-lg font-semibold text-nexus-gray-900 dark:text-white">Chats</h2>
-                            <button onClick={() => setIsChatModalVisible(true)} className="p-2 rounded-md text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700 hover:text-nexus-gray-900 dark:hover:text-white transition-colors" title="New Chat">
+                            <h2 className="text-lg font-semibold text-text-primary">Chats</h2>
+                            <button onClick={() => setIsChatModalVisible(true)} className="p-2 rounded-md text-text-secondary hover:bg-background-tertiary hover:text-text-primary transition-colors" title="New Chat">
                                 <PlusIcon className="w-5 h-5" />
                             </button>
                         </div>
@@ -945,6 +897,12 @@ export const MainLayout: React.FC = () => {
                         onPermanentlyDeleteCharacter={handlePermanentlyDeleteCharacter}
                     />
                 );
+            case 'lorebooks':
+                return <LorebookManager 
+                            lorebooks={appData.lorebooks || []}
+                            onLorebooksUpdate={handleLorebooksUpdate}
+                            onSetConfirmation={setConfirmationRequest}
+                        />;
             case 'none':
                 return null;
         }
@@ -953,7 +911,7 @@ export const MainLayout: React.FC = () => {
 
     return (
         <div 
-            className="relative h-screen w-screen overflow-hidden bg-nexus-light dark:bg-nexus-dark text-nexus-gray-900 dark:text-nexus-gray-200 font-sans flex transition-all duration-500"
+            className="relative h-screen w-screen overflow-hidden bg-background-primary text-text-primary font-sans flex transition-all duration-500"
             style={selectedChat?.uiSettings?.backgroundImage ? {
                 backgroundImage: `url('${selectedChat.uiSettings.backgroundImage}')`,
                 backgroundSize: 'cover',
@@ -961,10 +919,10 @@ export const MainLayout: React.FC = () => {
                 backgroundRepeat: 'no-repeat',
             } : {}}
         >
-            <div className="absolute inset-0 bg-nexus-light/80 dark:bg-nexus-dark/80 backdrop-blur-sm"></div>
+            <div className="absolute inset-0 bg-background-primary/80 backdrop-blur-sm"></div>
             {isLogViewerVisible && <LogViewer onClose={() => setIsLogViewerVisible(false)} />}
             {isHelpVisible && <HelpModal onClose={() => setIsHelpVisible(false)} />}
-            {isChatModalVisible && <ChatSelectionModal characters={appData.characters.filter(c => !c.isArchived)} onClose={() => setIsChatModalVisible(false)} onCreateChat={handleCreateChat}/>}
+            {isChatModalVisible && <ChatSelectionModal characters={appData.characters.filter(c => !c.isArchived)} lorebooks={appData.lorebooks || []} onClose={() => setIsChatModalVisible(false)} onCreateChat={handleCreateChat}/>}
             {isAppearanceModalVisible && (
                 <AppearanceModal 
                     settings={selectedChat?.uiSettings || {}}
@@ -983,34 +941,37 @@ export const MainLayout: React.FC = () => {
                 />
             )}
 
-            <div className="relative flex-shrink-0 bg-nexus-gray-light-100/80 dark:bg-nexus-gray-900/80 w-16 flex flex-col items-center justify-between py-4 border-r border-nexus-gray-light-300 dark:border-nexus-gray-700 z-20">
+            <div className="relative flex-shrink-0 bg-background-secondary/80 w-16 flex flex-col items-center justify-between py-4 border-r border-border-neutral z-20">
                 <div className="flex flex-col items-center space-y-2">
-                    <button onClick={() => handlePanelToggle('chats')} title="Chats" className={`p-2 rounded-lg ${activeView === 'chats' ? 'bg-nexus-blue-600 text-white' : 'text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700'}`}>
+                    <button onClick={() => { handlePanelToggle('chats'); setActiveView('chat'); }} title="Chats" className={`p-2 rounded-lg ${activePanel === 'chats' ? 'bg-primary-600 text-text-accent' : 'text-text-secondary hover:bg-background-tertiary'}`}>
                         <ChatBubbleIcon className="w-6 h-6" />
                     </button>
-                    <button onClick={() => handlePanelToggle('characters')} title="Characters" className={`p-2 rounded-lg ${activeView === 'characters' ? 'bg-nexus-blue-600 text-white' : 'text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700'}`}>
+                    <button onClick={() => { handlePanelToggle('characters'); }} title="Characters" className={`p-2 rounded-lg ${activePanel === 'characters' ? 'bg-primary-600 text-text-accent' : 'text-text-secondary hover:bg-background-tertiary'}`}>
                         <UsersIcon className="w-6 h-6" />
                     </button>
-                     <button onClick={handleViewPlugins} title="Plugins" className={`p-2 rounded-lg ${activeView === 'plugins' ? 'bg-nexus-blue-600 text-white' : 'text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700'}`}>
+                    <button onClick={() => { handlePanelToggle('lorebooks'); }} title="Lorebooks" className={`p-2 rounded-lg ${activePanel === 'lorebooks' ? 'bg-primary-600 text-text-accent' : 'text-text-secondary hover:bg-background-tertiary'}`}>
+                        <GlobeIcon className="w-6 h-6" />
+                    </button>
+                     <button onClick={() => { setActiveView('plugins'); setActivePanel('none'); }} title="Plugins" className={`p-2 rounded-lg ${activeView === 'plugins' ? 'bg-primary-600 text-text-accent' : 'text-text-secondary hover:bg-background-tertiary'}`}>
                         <CodeIcon className="w-6 h-6" />
                     </button>
 
-                    <div className="w-8 border-t border-nexus-gray-light-300 dark:border-nexus-gray-700 my-2"></div>
+                    <div className="w-8 border-t border-border-neutral my-2"></div>
                     
-                    <button onClick={() => setIsAppearanceModalVisible(true)} title="Appearance Settings" className="p-2 rounded-lg text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700">
+                    <button onClick={() => setIsAppearanceModalVisible(true)} title="Appearance Settings" className="p-2 rounded-lg text-text-secondary hover:bg-background-tertiary">
                         <PaletteIcon className="w-6 h-6" />
                     </button>
                     <input type="file" ref={fileInputRef} onChange={handleImportData} accept=".json" className="hidden" />
-                    <button onClick={handleSaveBackup} title="Save Full Backup" className="p-2 rounded-lg text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700">
+                    <button onClick={handleSaveBackup} title="Save Full Backup" className="p-2 rounded-lg text-text-secondary hover:bg-background-tertiary">
                         <DownloadIcon className="w-6 h-6" />
                     </button>
-                    <button onClick={() => fileInputRef.current?.click()} title="Import Data" className="p-2 rounded-lg text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700">
+                    <button onClick={() => fileInputRef.current?.click()} title="Import Data" className="p-2 rounded-lg text-text-secondary hover:bg-background-tertiary">
                         <UploadIcon className="w-6 h-6" />
                     </button>
-                    <button onClick={() => setIsLogViewerVisible(true)} title="View Logs" className="p-2 rounded-lg text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700">
+                    <button onClick={() => setIsLogViewerVisible(true)} title="View Logs" className="p-2 rounded-lg text-text-secondary hover:bg-background-tertiary">
                         <TerminalIcon className="w-6 h-6" />
                     </button>
-                    <button onClick={() => setIsHelpVisible(true)} title="Help" className="p-2 rounded-lg text-nexus-gray-600 dark:text-nexus-gray-400 hover:bg-nexus-gray-light-300 dark:hover:bg-nexus-gray-700">
+                    <button onClick={() => setIsHelpVisible(true)} title="Help" className="p-2 rounded-lg text-text-secondary hover:bg-background-tertiary">
                         <HelpIcon className="w-6 h-6" />
                     </button>
 
@@ -1020,7 +981,7 @@ export const MainLayout: React.FC = () => {
                 </div>
             </div>
 
-            <aside className={`relative flex-shrink-0 transform transition-all duration-300 ease-in-out bg-nexus-gray-light-200/80 dark:bg-nexus-gray-800/80 border-r border-nexus-gray-light-300 dark:border-nexus-gray-700 flex flex-col overflow-hidden ${activePanel !== 'none' ? 'w-80 p-4' : 'w-0 p-0 border-r-0'}`}>
+            <aside className={`relative flex-shrink-0 transform transition-all duration-300 ease-in-out bg-background-secondary/80 border-r border-border-neutral flex flex-col overflow-hidden ${activePanel !== 'none' ? 'w-80 p-4' : 'w-0 p-0 border-r-0'}`}>
                 {renderPanelContent()}
             </aside>
             

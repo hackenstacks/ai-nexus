@@ -32,6 +32,7 @@ export interface ChatSession {
   messages: Message[];
   isArchived?: boolean;
   uiSettings?: UISettings;
+  lorebookIds?: string[]; // New: Link to active lorebooks
 }
 
 export interface ApiConfig {
@@ -71,6 +72,8 @@ export interface Character {
   lore?: string[];
   memory?: string;
   voiceURI?: string; // For Text-to-Speech
+  firstMessage?: string; // New: For character card compatibility
+  characterType?: 'character' | 'narrator'; // New: Distinguish between persona and scenario bots
   // New RAG fields
   ragEnabled?: boolean;
   embeddingConfig?: EmbeddingConfig;
@@ -96,10 +99,24 @@ export interface Plugin {
   };
 }
 
+export interface LorebookEntry {
+    id: string;
+    keys: string[];
+    content: string;
+}
+
+export interface Lorebook {
+    id: string;
+    name: string;
+    description: string;
+    entries: LorebookEntry[];
+}
+
 export interface AppData {
   characters: Character[];
   chatSessions: ChatSession[];
   plugins?: Plugin[];
+  lorebooks?: Lorebook[]; // New: Store all lorebooks
   // New security field
   userKeys?: CryptoKeys;
 }
